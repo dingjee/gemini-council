@@ -4,6 +4,7 @@ import { initI18n } from '@/utils/i18n';
 
 import { startChatWidthAdjuster } from './chatWidth/index';
 import { startContextSync } from './contextSync';
+import { startCouncil } from '@/features/council/core/CouncilCoordinator';
 import { startDeepResearchExport } from './deepResearch/index';
 import DefaultModelManager from './defaultModel/modelLocker';
 import { startEditInputWidthAdjuster } from './editInputWidth/index';
@@ -140,6 +141,9 @@ async function initializeFeatures(): Promise<void> {
       await delay(LIGHT_FEATURE_INIT_DELAY);
 
       startSidebarWidthAdjuster();
+      await delay(LIGHT_FEATURE_INIT_DELAY);
+
+      startCouncil();
       await delay(LIGHT_FEATURE_INIT_DELAY);
 
       startInputCollapse();

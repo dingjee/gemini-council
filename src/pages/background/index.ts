@@ -1,6 +1,7 @@
 /* Background service worker - handles cross-origin image fetch, popup opening, and sync */
 import browser from 'webextension-polyfill';
 
+import { openRouterService } from '@/core/services/OpenRouterService';
 import { googleDriveSyncService } from '@/core/services/GoogleDriveSyncService';
 import { StorageKeys } from '@/core/types/common';
 import type { FolderData } from '@/core/types/folder';
@@ -230,7 +231,7 @@ class StarredMessagesManager {
    */
   private serialize<T>(operation: () => Promise<T>): Promise<T> {
     const promise = this.operationQueue.then(operation, operation);
-    this.operationQueue = promise.catch(() => {}); // Prevent error propagation
+    this.operationQueue = promise.catch(() => { }); // Prevent error propagation
     return promise;
   }
 
@@ -447,10 +448,29 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       // Convert to base64
       const b64 = arrayBufferToBase64(ab);
       sendResponse({ ok: true, contentType, base64: b64 });
+      // Handle Council operations
+      if (message && message.type === 'gv.council.submitQuery') {
+        const { prompt, history, modelId, apiKey } = message.payload;
+        // Import dynamically if needed or rely on existing imports if I add them at top. 
+        // Adding imports at top is better but file is large. I will add imports at top in next step.
+        // For now assuming openRouterService is imported.
+
+        // Construct messages: History + User Prompt
+        // Actually Coordinator sends fully formatted messages in 'history' (renaming needed?)
+        // Coordinator code: history: messages (where messages has system prompt, history, and user prompt? No, user prompt separate?)
+        // Coordinator: messages = HistoryFormatter.format(...) -> [system, user, assistant...]
+        // Coordinator Payload: prompt: last_content, history: messages.
+        // So 'history' contains everything.
+
+        const response = await openRouterService.chatCompletion(apiKey, modelId, history);
+        sendResponse(response);
+        return;
+      }
+
     } catch (e: any) {
       try {
         sendResponse({ ok: false, error: String(e?.message || e) });
-      } catch {}
+      } catch { }
     }
   })();
   return true; // keep channel open for async sendResponse
