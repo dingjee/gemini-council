@@ -1,51 +1,34 @@
-node_modules/
-/dist_chrome/
-/dist_firefox/
-/dist_safari/
-gemini-voyager-edge-*.zip
+# dependencies (bun install)
+node_modules
 
-# Vitest
-coverage/
-.vitest/
+# output
+out
+dist
+*.tgz
 
-# Generated Xcode projects (users generate these locally)
-/Gemini Voyager/
-*.xcodeproj/xcuserdata/
-*.xcworkspace/xcuserdata/
-DerivedData/
+# code coverage
+coverage
+*.lcov
 
-.git-commit-message.txt
+# logs
+logs
+_.log
+report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
-package-lock.json
+# dotenv environment variable files
+.env
+.env.development.local
+.env.test.local
+.env.production.local
+.env.local
 
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
+# caches
+.eslintcache
+.cache
+*.tsbuildinfo
 
-.vscode/
-.idea/
-.claude/
+# IntelliJ based IDEs
+.idea
+
+# Finder (MacOS) folder config
 .DS_Store
-
-*.local
-.env*
-
-*.mov
-*.mp4
-!docs/public/assets/*.mov
-!docs/public/assets/*.mp4
-*.xpi
-*.srt
-
-
-# VitePress
-docs/.vitepress/dist
-docs/.vitepress/cache
-
-# Sync Service (Commercial - Private)
-SYNC_SERVICE_ARCHITECTURE.md
-.env.sync
-.chrome-dev-data/
-
-# Dev Tools
-scripts/chrome-profile/

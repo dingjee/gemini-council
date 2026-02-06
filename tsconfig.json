@@ -1,40 +1,29 @@
 {
   "compilerOptions": {
-    "target": "esnext",
-    "types": ["vite/client", "node", "chrome"],
-    "lib": ["dom", "dom.iterable", "esnext"],
-    "allowJs": false,
-    "skipLibCheck": true,
-    "esModuleInterop": true,
-    "allowSyntheticDefaultImports": true,
-    "strict": true,
-    "forceConsistentCasingInFileNames": true,
-    "noFallthroughCasesInSwitch": true,
-    "module": "esnext",
-    "moduleResolution": "bundler",
-    "resolveJsonModule": true,
-    "noEmit": true,
+    // Environment setup & latest features
+    "lib": [
+      "ESNext",
+      "DOM"
+    ],
+    "target": "ESNext",
+    "module": "Preserve",
+    "moduleDetection": "force",
     "jsx": "react-jsx",
-    "baseUrl": ".",
-    "paths": {
-      "@src/*": ["src/*"],
-      "@assets/*": ["src/assets/*"],
-      "@locales/*": ["src/locales/*"],
-      "@pages/*": ["src/pages/*"],
-      "@/*": ["src/*"],
-      "@/core": ["src/core"],
-      "@/core/*": ["src/core/*"],
-      "@/features/*": ["src/features/*"],
-      "@/components/*": ["src/components/*"],
-      "@/lib/*": ["src/lib/*"]
-    }
-  },
-  "include": [
-    "src",
-    "utils",
-    "vite.config.base.ts",
-    "vite.config.chrome.ts",
-    "vite.config.firefox.ts",
-    "vite.config.safari.ts"
-  ]
+    "allowJs": true,
+    // Bundler mode
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "noEmit": true,
+    // Best practices
+    "strict": true,
+    "skipLibCheck": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    // Some stricter flags (disabled by default)
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "noPropertyAccessFromIndexSignature": false
+  }
 }
