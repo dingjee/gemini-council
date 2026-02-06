@@ -1,6 +1,6 @@
 {
   "extName": {
-    "message": "Gemini Voyager",
+    "message": "Gemini Council",
     "description": "扩展程序名称"
   },
   "extDescription": {
@@ -52,7 +52,7 @@
     "description": "语言标签"
   },
   "pm_title": {
-    "message": "Gemini Voyager",
+    "message": "Gemini Council",
     "description": "面板标题"
   },
   "pm_add": {

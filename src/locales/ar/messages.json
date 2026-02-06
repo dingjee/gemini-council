@@ -1,6 +1,6 @@
 {
   "extName": {
-    "message": "Gemini Voyager",
+    "message": "Gemini Council",
     "description": "Extension name"
   },
   "extDescription": {
@@ -52,7 +52,7 @@
     "description": "Language label"
   },
   "pm_title": {
-    "message": "Gemini Voyager",
+    "message": "Gemini Council",
     "description": "Prompt Manager title"
   },
   "pm_add": {
