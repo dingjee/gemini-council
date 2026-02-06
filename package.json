@@ -8,9 +8,13 @@
     "dev": "bun run --watch build.ts"
   },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "@types/chrome": "^0.1.36"
   },
   "peerDependencies": {
     "typescript": "^5"
+  },
+  "dependencies": {
+    "zod": "^4.3.6"
   }
 }

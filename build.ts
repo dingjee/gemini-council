@@ -1,20 +1,20 @@
 import { fstat } from "fs";
+import { cp } from "fs/promises";
 
 console.log("Building Gemini Council...");
 
 // Build content script
 await Bun.build({
-    entrypoints: ["./src/content.ts"],
+    entrypoints: ["./src/content.ts", "./src/background.ts"],
     outdir: "./dist",
     target: "browser",
+    define: {
+        "process.env.OPENROUTER_API_KEY": JSON.stringify(Bun.env.OPENROUTER_API_KEY || ""),
+    },
     minify: false, // Keep it readable for now
 });
 
 // Copy static assets
-// Bun doesn't have a built-in copy, so we use shell or specific code
-// Using Bun.write for simple copy or shelling out
-import { cp } from "fs/promises";
-
 await cp("./public", "./dist", { recursive: true });
 
 console.log("Build complete! Load './dist' in Firefox.");
