@@ -1,12 +1,19 @@
-import { fstat } from "fs";
-import { cp } from "fs/promises";
+import { cp, rm } from "fs/promises";
 
-console.log("Building Gemini Council...");
+// Parse command line arguments
+const args = process.argv.slice(2);
+const isFirefox = args.includes("--firefox");
+const outDir = isFirefox ? "./dist_firefox" : "./dist";
 
-// Build content script
+console.log(`Building Gemini Council for ${isFirefox ? "Firefox" : "Chrome"}...`);
+
+// Clean output directory
+await rm(outDir, { recursive: true, force: true });
+
+// Build content script and background script
 await Bun.build({
     entrypoints: ["./src/content.ts", "./src/background.ts"],
-    outdir: "./dist",
+    outdir: outDir,
     target: "browser",
     define: {
         "process.env.OPENROUTER_API_KEY": JSON.stringify(Bun.env.OPENROUTER_API_KEY || ""),
@@ -14,7 +21,13 @@ await Bun.build({
     minify: false, // Keep it readable for now
 });
 
-// Copy static assets
-await cp("./public", "./dist", { recursive: true });
+if (Bun.env.OPENROUTER_API_KEY) {
+    console.log("Injecting API Key from .env (Length: " + Bun.env.OPENROUTER_API_KEY.length + ")");
+} else {
+    console.warn("WARNING: No OPENROUTER_API_KEY found in environment!");
+}
 
-console.log("Build complete! Load './dist' in Firefox.");
+// Copy static assets
+await cp("./public", outDir, { recursive: true });
+
+console.log(`Build complete! Load '${outDir}' in ${isFirefox ? "Firefox about:debugging" : "browser"}.`);

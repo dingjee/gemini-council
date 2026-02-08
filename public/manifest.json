@@ -3,19 +3,39 @@
   "name": "Gemini Council",
   "version": "1.0.0",
   "description": "Enhances Google Gemini with a secondary opinion layer.",
-  "permissions": ["storage", "activeTab"],
-  "host_permissions": ["https://gemini.google.com/*"],
+  "permissions": [
+    "storage",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "https://gemini.google.com/*"
+  ],
   "content_scripts": [
     {
-      "matches": ["https://gemini.google.com/*"],
-      "js": ["content.js"],
+      "matches": [
+        "https://gemini.google.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
       "run_at": "document_idle"
     }
   ],
+  "background": {
+    "scripts": [
+      "background.js"
+    ],
+    "type": "module"
+  },
   "browser_specific_settings": {
     "gecko": {
       "id": "gemini-council@dingjee.dev",
-      "strict_min_version": "115.0"
+      "strict_min_version": "140.0",
+      "data_collection_permissions": {
+        "required": [
+          "websiteContent"
+        ]
+      }
     }
   }
 }

@@ -5,11 +5,17 @@
   "private": true,
   "scripts": {
     "build": "bun run build.ts",
-    "dev": "bun run --watch build.ts"
+    "build:firefox": "bun run build.ts --firefox",
+    "dev": "bun run --watch build.ts",
+    "dev:firefox": "nodemon --watch src --watch public --ext ts,js,json,html,css --exec \"bun run build.ts --firefox\"",
+    "lint:firefox": "web-ext lint --source-dir ./dist_firefox",
+    "pack:firefox": "bun run build:firefox && web-ext build --source-dir ./dist_firefox --artifacts-dir ./web-ext-artifacts --overwrite-dest"
   },
   "devDependencies": {
     "@types/bun": "latest",
-    "@types/chrome": "^0.1.36"
+    "@types/chrome": "^0.1.36",
+    "nodemon": "^3.1.11",
+    "web-ext": "^9.2.0"
   },
   "peerDependencies": {
     "typescript": "^5"
