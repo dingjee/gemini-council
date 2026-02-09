@@ -1,6 +1,19 @@
+/**
+ * Content Script - Gemini Council
+ * 
+ * Injects into Gemini's web interface to:
+ * - Intercept user queries for external model processing
+ * - Persist messages to local storage
+ * - Hydrate previous messages on page load
+ * - Sync with Google Drive in background
+ */
+
 import { ModelSelector } from "./features/council/ui/ModelSelector";
 import { MessageRenderer } from "./features/council/ui/MessageRenderer";
 import { DOMContentExtractor } from "./features/council/core/DOMContentExtractor";
+import { StorageBridge } from "./features/council/storage/StorageBridge";
+import { MessageHydrator } from "./features/council/storage/MessageHydrator";
+import type { MessageAnchor } from "./core/types/storage.types";
 
 console.log("Gemini Council: Content script loaded.");
 
@@ -12,14 +25,34 @@ class CouncilManager {
     private sendButton: HTMLElement | null = null;
     private sendButtonContainer: HTMLElement | null = null;
     private observer: MutationObserver | null = null;
+    private hydrator: MessageHydrator;
     // Debounce context checking
     private contextCheckTimeout: number | undefined;
 
     constructor() {
         this.selector = new ModelSelector(this.handleModelChange.bind(this));
+        this.hydrator = new MessageHydrator();
         this.startObserving();
         // Periodically check context size (every 5s)
         setInterval(() => this.checkContextSize(), 5000);
+
+        // Initialize storage hydration
+        this.initializeHydration();
+    }
+
+    /**
+     * Initialize hydration of stored messages
+     */
+    private async initializeHydration(): Promise<void> {
+        // Wait a bit for Gemini to finish rendering
+        await this.sleep(2000);
+
+        try {
+            await this.hydrator.hydrate();
+            console.log("Gemini Council: Hydration complete");
+        } catch (error) {
+            console.warn("Gemini Council: Hydration failed", error);
+        }
     }
 
     private handleModelChange(model: string) {
@@ -153,6 +186,34 @@ class CouncilManager {
         this.selector.setContextSize(estimatedTokens, CONTEXT_THRESHOLD);
     }
 
+    /**
+     * Find the last message element in the chat for anchoring
+     */
+    private findLastMessageElement(): Element | null {
+        const chatContainer = MessageRenderer.findChatContainer();
+        if (!chatContainer) return null;
+
+        // Find the last Gemini message (not our injected ones)
+        const messages = chatContainer.querySelectorAll(
+            '[role="article"]:not(.council-conversation-container), ' +
+            '[data-message]:not(.council-conversation-container), ' +
+            '.conversation-container:not(.council-conversation-container)'
+        );
+
+        const lastMessage = messages[messages.length - 1];
+        return messages.length > 0 && lastMessage ? lastMessage : null;
+    }
+
+    /**
+     * Count current messages for position index
+     */
+    private getCurrentMessageIndex(): number {
+        const chatContainer = MessageRenderer.findChatContainer();
+        if (!chatContainer) return 0;
+
+        return chatContainer.children.length;
+    }
+
     private async triggerCouncil() {
         const text = this.getInputText();
         if (!text) return;
@@ -172,6 +233,11 @@ class CouncilManager {
             console.error("Gemini Council: Could not find chat container");
             return;
         }
+
+        // Capture anchor BEFORE injecting our message
+        const precedingElement = this.findLastMessageElement();
+        const positionIndex = this.getCurrentMessageIndex();
+        const anchor = StorageBridge.createAnchor(precedingElement, positionIndex);
 
         // Inject user message
         const userMessage = MessageRenderer.createUserMessage(text);
@@ -213,6 +279,15 @@ class CouncilManager {
                 const content = response.data.choices[0].message.content;
                 const responseElement = MessageRenderer.createModelResponse(modelId, modelName, content);
                 MessageRenderer.replaceLoading(loadingElement, responseElement);
+
+                // Persist to storage (async, don't await)
+                this.persistMessage({
+                    modelId,
+                    modelName,
+                    userPrompt: text,
+                    content,
+                    contextAttached: shouldAttachContext,
+                }, anchor);
             } else {
                 const error = response.error || "Unknown error";
                 const errorElement = MessageRenderer.createErrorResponse(modelId, modelName, error);
@@ -224,6 +299,36 @@ class CouncilManager {
             const errorElement = MessageRenderer.createErrorResponse(modelId, modelName, errorMessage);
             MessageRenderer.replaceLoading(loadingElement, errorElement);
         }
+    }
+
+    /**
+     * Persist a message to storage (async, fire-and-forget)
+     */
+    private async persistMessage(
+        params: {
+            modelId: string;
+            modelName: string;
+            userPrompt: string;
+            content: string;
+            contextAttached: boolean;
+        },
+        anchor: MessageAnchor
+    ): Promise<void> {
+        try {
+            const result = await StorageBridge.saveMessage(params, anchor);
+
+            if (result.success) {
+                console.log("Gemini Council: Message persisted", result.data?.id);
+            } else {
+                console.warn("Gemini Council: Failed to persist message", result.error);
+            }
+        } catch (error) {
+            console.warn("Gemini Council: Persistence error", error);
+        }
+    }
+
+    private sleep(ms: number): Promise<void> {
+        return new Promise(resolve => setTimeout(resolve, ms));
     }
 }
 
