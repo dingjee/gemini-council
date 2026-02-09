@@ -220,29 +220,36 @@ export class StorageService {
                     cloudConv.synced = true;
                     await this.db.conversations.add(cloudConv);
                     added++;
-                } else if (cloudConv.lastUpdated > localConv.lastUpdated) {
-                    // Cloud is newer - merge messages (union strategy)
+                } else {
+                    // Both exist - merge messages (union strategy)
+                    // We always want to merge because messages might be appended on other devices
+                    // regardless of which one has the "latest" timestamp.
                     const mergedMessages = this.mergeMessages(
                         localConv.messages,
                         cloudConv.messages
                     );
                     const mergedAnchors = { ...localConv.anchors, ...cloudConv.anchors };
 
-                    await this.db.conversations.update(cloudConv.id, {
-                        messages: mergedMessages,
-                        anchors: mergedAnchors,
-                        lastUpdated: cloudConv.lastUpdated,
-                        synced: true,
-                        title: cloudConv.title || localConv.title,
-                    });
-                    updated++;
-                } else if (cloudConv.lastUpdated < localConv.lastUpdated) {
-                    // Local is newer - keep local, mark for re-sync
-                    // (already handled by synced=false flag)
-                    unchanged++;
-                } else {
-                    // Same timestamp - no action needed
-                    unchanged++;
+                    // Determine if we actually changed anything
+                    const hasChanges = mergedMessages.length > localConv.messages.length ||
+                        Object.keys(mergedAnchors).length > Object.keys(localConv.anchors).length;
+
+                    if (hasChanges || cloudConv.lastUpdated > localConv.lastUpdated) {
+                        await this.db.conversations.update(cloudConv.id, {
+                            messages: mergedMessages,
+                            anchors: mergedAnchors,
+                            lastUpdated: Math.max(localConv.lastUpdated, cloudConv.lastUpdated),
+                            // If local was unsynced, keep it unsynced so we push the merge back
+                            // If local was synced, but we merged new cloud data, we serve it as synced (unless we added local stuff?)
+                            // Actually, if we merge, we now have a consistent state.
+                            // But if local had unsynced changes, we still need to push.
+                            synced: localConv.synced,
+                            title: cloudConv.title || localConv.title,
+                        });
+                        updated++;
+                    } else {
+                        unchanged++;
+                    }
                 }
             }
         });

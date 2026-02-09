@@ -3,6 +3,8 @@
  * Hides Gemini's native model picker and provides a unified interface
  */
 
+import { SyncIndicator } from "./SyncIndicator";
+
 interface ModelOption {
     id: string;
     name: string;
@@ -55,7 +57,7 @@ export class ModelSelector {
     private dropdown: HTMLElement | null = null;
     private triggerButton: HTMLElement | null = null;
     private isOpen: boolean = false;
-    private activeModel: ModelOption = MODEL_GROUPS[0].models[2]!; // Default: Gemini Pro
+    private activeModel: ModelOption = MODEL_GROUPS[0]!.models[2]!; // Default: Gemini Pro
     private onModelChange: (model: string) => void;
     private injected: boolean = false;
     private observer: MutationObserver | null = null;
@@ -65,6 +67,9 @@ export class ModelSelector {
     private contextCheckbox: HTMLInputElement | null = null;
     private contextSizeDisplay: HTMLElement | null = null;
     private isContextLarge: boolean = false;
+
+    // Sync Indicator
+    private syncIndicator: SyncIndicator | null = null;
 
     constructor(onModelChange: (model: string) => void) {
         this.onModelChange = onModelChange;
@@ -276,6 +281,52 @@ export class ModelSelector {
                 background: rgba(255, 255, 255, 0.2);
                 border-radius: 3px;
             }
+
+            /* Sync Button */
+            .council-sync-btn {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                width: 32px;
+                height: 32px;
+                border-radius: 50%;
+                border: none;
+                background: transparent;
+                color: var(--gem-sys-color--on-surface-variant, #9aa0a6);
+                cursor: pointer;
+                transition: all 0.2s;
+                margin-right: 8px;
+            }
+            .council-sync-btn:hover { background: rgba(255, 255, 255, 0.08); color: var(--gem-sys-color--on-surface, #e3e3e3); }
+            
+            .council-sync-btn.disconnected { opacity: 0.5; }
+            .council-sync-btn.syncing { color: #8ab4f8; animation: spin 1s linear infinite; }
+            .council-sync-btn.synced { color: #81c784; }
+            .council-sync-btn.error { color: #f44336; }
+            .council-sync-btn.loading .spinner { animation: spin 1s linear infinite; }
+
+            @keyframes spin { 100% { transform: rotate(360deg); } }
+
+            /* Toast */
+            .council-toast {
+                position: fixed;
+                bottom: 24px;
+                left: 50%;
+                transform: translateX(-50%) translateY(20px);
+                background: #333;
+                color: #fff;
+                padding: 12px 24px;
+                border-radius: 24px;
+                font-size: 14px;
+                opacity: 0;
+                transition: all 0.3s;
+                z-index: 10000;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            }
+            .council-toast.visible {
+                opacity: 1;
+                transform: translateX(-50%) translateY(0);
+            }
         `;
         document.head.appendChild(style);
     }
@@ -343,6 +394,10 @@ export class ModelSelector {
         this.contextToggleContainer.appendChild(this.contextCheckbox);
         this.contextToggleContainer.appendChild(label);
         this.contextToggleContainer.appendChild(this.contextSizeDisplay);
+
+        // Create sync indicator
+        this.syncIndicator = new SyncIndicator();
+        this.container.appendChild(this.syncIndicator.getElement());
 
         // Create trigger button
         this.triggerButton = document.createElement("button");
@@ -507,6 +562,7 @@ export class ModelSelector {
     }
 
     public destroy() {
+        this.syncIndicator?.destroy();
         this.observer?.disconnect();
         this.container?.remove();
         document.getElementById('gemini-council-styles')?.remove();

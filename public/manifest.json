@@ -14,7 +14,7 @@
     "https://accounts.google.com/*"
   ],
   "oauth2": {
-    "client_id": "YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com",
+    "client_id": "911981025593-o115j55ebtpa8a6q3c4c0daq8kpp9nbc.apps.googleusercontent.com",
     "scopes": [
       "https://www.googleapis.com/auth/drive.appdata"
     ]
@@ -38,7 +38,7 @@
   },
   "browser_specific_settings": {
     "gecko": {
-      "id": "gemini-council@dingjee.dev",
+      "id": "{5a203992-3b2d-4508-963d-4c8033230495}",
       "strict_min_version": "140.0",
       "data_collection_permissions": {
         "required": [

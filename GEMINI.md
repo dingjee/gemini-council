@@ -39,5 +39,8 @@
 * `src/core/services/OpenRouterService.ts`: API Bridge (Format/Fetch).
 * `src/features/council/core`: Coordinator.
 * `src/features/council/ui`: Sidecar Component (Split-View).
+* `src/core/types/storage.types.ts`: Storage schemas (Zod).
+* `src/core/services/SyncManager.ts`: Sync Orchestration.
+* `src/features/council/storage`: Local persistence & Hydration.
 * `src/features/council/parsers`: PDF/Text Extractors.
 * `src/pages/content/council-injector.ts`: Bootstrapper.

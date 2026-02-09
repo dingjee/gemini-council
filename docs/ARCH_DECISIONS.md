@@ -52,6 +52,7 @@ Users lose their "shadow conversations" (external model responses injected into 
 | SyncManager | `src/core/services/SyncManager.ts` | Sync orchestration & debouncing |
 | StorageBridge | `src/features/council/storage/StorageBridge.ts` | Content script API |
 | MessageHydrator | `src/features/council/storage/MessageHydrator.ts` | DOM re-injection on refresh |
+| SyncIndicator | `src/features/council/ui/SyncIndicator.ts` | Sync status UI & login handler |
 
 ### Data Schema
 
@@ -80,8 +81,9 @@ interface ExternalMessage {
 
 1. **Hydration (Startup)**:
    - Pull from Google Drive
-   - Merge using "Last-Write-Wins" for conflicts
-   - Union merge for messages (append-only nature)
+   - **Union Merge**: Messages are always merged (append-only), regardless of timestamp
+   - **Union Merge**: Anchors are combined
+   - **Max Timestamp**: Last updated is `Math.max(local, cloud)`
 
 2. **Runtime Writes**:
    - Write to IndexedDB immediately
