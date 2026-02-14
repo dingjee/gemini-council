@@ -133,4 +133,43 @@ interface ExternalMessage {
 
 ---
 
-*Last updated: 2026-02-09*
+
+## 2026-02-10: Migration to GitHub Gist Sync
+
+### Decision
+Replaced Google Drive `appDataFolder` storage with **GitHub Gist** via Personal Access Token (PAT).
+
+### Context
+- **Google OAuth Complexity**: Accessing `drive.appdata` requires strict verification processes (Video, Privacy Policy, etc.) which are overkill for a developer tool.
+- **Testing Constraints**: Google's "Testing" mode requires manual user addition and tokens expire every 7 days.
+- **Developer Experience**: A simple PAT is more "elegant" for the target audience (developers).
+
+### New Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                      Background Script                          │
+│  ┌─────────────────┐     ┌─────────────────┐                    │
+│  │  SyncManager    │────▶│  GistClient     │──▶ GitHub API      │
+│  │  (Orchestrator) │     └─────────────────┘    (Secret Gist)   │
+│  └────────┬────────┘                                            │
+│           │                                                      │
+│           ▼                                                      │
+│     IndexedDB (Local)                                           │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Changes
+1. **Removed**: `DriveClient.ts`, `AuthService.ts`.
+2. **Added**: `GistClient.ts`.
+3. **Manifest**: Removed `identity`, `oauth2` permissions. Added `https://api.github.com/*`.
+4. **Auth Flow**: Replaced OAuth popup with a simple `window.prompt` for PAT.
+
+### Data Privacy
+- **Secret Gist**: Backups are stored in a Secret Gist (not searchable, but accessible via URL).
+- **Token Storage**: PAT is stored in `chrome.storage.local`.
+- **Transparency**: Users can view/edit their backup directly on GitHub.
+
+---
+
+*Last updated: 2026-02-10*

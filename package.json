@@ -11,7 +11,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "lint:firefox": "web-ext lint --source-dir ./dist_firefox",
-    "pack:firefox": "bun run build:firefox && web-ext build --source-dir ./dist_firefox --artifacts-dir ./web-ext-artifacts --overwrite-dest"
+    "pack:firefox": "bun run build:firefox && web-ext build --source-dir ./dist_firefox --artifacts-dir ./web-ext-artifacts --overwrite-dest",
+    "start:firefox": "web-ext run --source-dir ./dist_firefox --keep-profile-changes --firefox-profile ./firefox-dev-profile"
   },
   "devDependencies": {
     "@types/bun": "latest",

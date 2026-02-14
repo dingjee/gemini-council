@@ -1,7 +1,7 @@
 /**
  * SyncIndicator - UI Component for Sync Status
  * 
- * Displays a button indicating Google Drive sync status.
+ * Displays a button indicating GitHub Gist sync status.
  * Handles login/logout and manual sync triggers.
  */
 
@@ -17,12 +17,13 @@ export class SyncIndicator {
     private status: SyncStatus = "idle";
     private isLoggedIn = false;
     private pendingChanges = 0;
+    private lastError: string | null = null;
     private poller: number | undefined;
 
     constructor() {
         this.element = document.createElement("button");
         this.element.className = "council-sync-btn";
-        this.element.title = "Google Drive Sync";
+        this.element.title = "GitHub Gist Sync";
 
         this.element.onclick = (e) => {
             e.stopPropagation();
@@ -74,10 +75,11 @@ export class SyncIndicator {
                 this.status = result.state.status;
                 this.isLoggedIn = result.isLoggedIn || false;
                 this.pendingChanges = result.state.pendingChanges;
+                this.lastError = result.state.error || null;
                 this.updateUI();
             }
         } catch (error) {
-            console.warn("SyncIndicator: Failed to check status", error);
+            // Silently fail - status will be retried on next poll
         }
     }
 
@@ -86,14 +88,19 @@ export class SyncIndicator {
      */
     private async handleClick() {
         if (!this.isLoggedIn) {
-            // Trigger login
+            // Trigger login via prompt for PAT
+            // @ts-ignore
+            const defaultToken = process.env.GITHUB_GIST_API_KEY || "";
+            const token = window.prompt("Enter GitHub Personal Access Token (with 'gist' scope):", defaultToken);
+            if (!token) return;
+
             this.setLoading(true);
-            const result = await StorageBridge.login();
+            const result = await StorageBridge.login(token);
             this.setLoading(false);
 
             if (result.success) {
                 this.checkStatus();
-                this.showToast("Connected to Google Drive");
+                this.showToast("Connected to GitHub Gist");
             } else {
                 this.showToast("Login failed: " + (result.error || "Unknown error"));
             }
@@ -105,8 +112,12 @@ export class SyncIndicator {
             const result = await StorageBridge.syncNow();
             if (result.success) {
                 this.showToast("Sync complete");
+                this.lastError = null;
             } else {
-                this.showToast("Sync failed");
+                const errorMsg = result.error || (result.state?.error) || "Unknown error";
+                this.lastError = errorMsg;
+                this.showToast(`Sync failed: ${errorMsg}`);
+                console.error("Gemini Council Sync Failed:", errorMsg);
             }
             this.checkStatus();
         }
@@ -124,12 +135,12 @@ export class SyncIndicator {
         const ICON_ALERT = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>`;
 
         let icon = ICON_CLOUD;
-        let tooltip = "Google Drive Sync";
+        let tooltip = "GitHub Gist Sync";
         let classes = "council-sync-btn";
 
         if (!this.isLoggedIn) {
             icon = ICON_CLOUD_OFF;
-            tooltip = "Connect to Google Drive";
+            tooltip = "Connect to GitHub Gist";
             classes += " disconnected";
         } else if (this.status === "syncing") {
             icon = ICON_SYNC;
@@ -137,8 +148,13 @@ export class SyncIndicator {
             classes += " syncing";
         } else if (this.status === "error") {
             icon = ICON_ALERT;
-            tooltip = "Sync Error (Click to retry)";
+            const errorTooltip = this.lastError ? `: ${this.lastError}` : "";
+            tooltip = `Sync Error${errorTooltip} (Click to retry)`;
             classes += " error";
+
+            if (this.lastError) {
+                console.warn("Gemini Council Sync Error State:", this.lastError);
+            }
         } else if (this.pendingChanges > 0) {
             icon = ICON_CLOUD; // or a specific icon for pending
             tooltip = `${this.pendingChanges} changes pending`;

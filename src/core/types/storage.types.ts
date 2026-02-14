@@ -1,5 +1,5 @@
 /**
- * Storage Types for Local-First + Google Drive Sync Architecture
+ * Storage Types for Local-First + GitHub Gist Sync Architecture
  * 
  * These types define the schema for IndexedDB and cloud sync operations.
  */

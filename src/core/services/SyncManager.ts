@@ -1,12 +1,12 @@
 /**
  * SyncManager - The Brain of the Sync System
  * 
- * Orchestrates all sync operations between local IndexedDB and Google Drive.
+ * Orchestrates all sync operations between local IndexedDB and GitHub Gist.
  * Implements debounced writes, hydration on startup, and conflict resolution.
  */
 
 import { StorageService } from "./StorageService";
-import { DriveClient } from "./DriveClient";
+import { GistClient, type GistResult } from "./GistClient";
 import {
     type CloudBackup,
     type SyncState,
@@ -45,7 +45,7 @@ interface PendingChange {
 
 export class SyncManager {
     private storageService: StorageService;
-    private driveClient: DriveClient;
+    private gistClient: GistClient;
 
     private syncState: SyncState = {
         status: "idle",
@@ -63,7 +63,7 @@ export class SyncManager {
 
     private constructor() {
         this.storageService = StorageService.getInstance();
-        this.driveClient = DriveClient.getInstance();
+        this.gistClient = GistClient.getInstance();
     }
 
     /**
@@ -93,8 +93,8 @@ export class SyncManager {
         // Load persisted sync state
         await this.loadSyncState();
 
-        // Initialize drive client (which initializes auth)
-        await this.driveClient.init();
+        // Initialize gist client (which loads token)
+        await this.gistClient.init();
 
         // Perform initial hydration from cloud
         await this.hydrate();
@@ -108,9 +108,9 @@ export class SyncManager {
     async hydrate(): Promise<void> {
         console.log("SyncManager: Starting hydration...");
 
-        const isAuth = await this.driveClient.isAuthenticated();
+        const isAuth = this.gistClient.isAuthenticated();
         if (!isAuth) {
-            console.log("SyncManager: Not authenticated, skipping hydration");
+            console.log("SyncManager: Not authenticated (No GitHub Token), skipping hydration");
             return;
         }
 
@@ -118,7 +118,7 @@ export class SyncManager {
 
         try {
             // Pull cloud backup
-            const pullResult = await this.driveClient.pull();
+            const pullResult = await this.gistClient.pull();
 
             if (!pullResult.success) {
                 console.warn("SyncManager: Hydration pull failed", pullResult.error);
@@ -205,21 +205,23 @@ export class SyncManager {
     /**
      * Trigger login flow
      */
-    async login(): Promise<boolean> {
-        const result = await this.driveClient.login();
+    /**
+     * Trigger login flow (Set Token)
+     */
+    async login(token: string): Promise<GistResult<boolean>> {
+        const result = await this.gistClient.login(token);
         if (result.success) {
             // After successful login, hydrate
             await this.hydrate();
-            return true;
         }
-        return false;
+        return result;
     }
 
     /**
      * Logout and stop syncing
      */
     async logout(): Promise<void> {
-        await this.driveClient.logout();
+        await this.gistClient.logout();
         this.pendingChanges = [];
         if (this.syncTimer) {
             clearTimeout(this.syncTimer);
@@ -236,7 +238,7 @@ export class SyncManager {
      * Check if user is logged in
      */
     async isLoggedIn(): Promise<boolean> {
-        return this.driveClient.isAuthenticated();
+        return this.gistClient.isAuthenticated();
     }
 
     // ========================================================================
@@ -284,7 +286,7 @@ export class SyncManager {
             return false;
         }
 
-        const isAuth = await this.driveClient.isAuthenticated();
+        const isAuth = this.gistClient.isAuthenticated();
         if (!isAuth) {
             console.log("SyncManager: Not authenticated, skipping sync");
             return false;
@@ -340,11 +342,11 @@ export class SyncManager {
      */
     private async performSyncCycle(): Promise<boolean> {
         // Step 1: Pull latest from cloud
-        const pullResult = await this.driveClient.pull();
+        const pullResult = await this.gistClient.pull();
 
         if (!pullResult.success) {
             if (pullResult.error.code === "RATE_LIMITED") {
-                console.log(`SyncManager: Rate limited, retry after ${pullResult.error.retryAfter}s`);
+                console.log(`SyncManager: Rate limited`);
                 throw new Error("Rate limited");
             }
             if (pullResult.error.code === "NETWORK") {
@@ -375,11 +377,11 @@ export class SyncManager {
         };
 
         // Step 5: Push to cloud
-        const pushResult = await this.driveClient.push(newBackup);
+        const pushResult = await this.gistClient.push(newBackup);
 
         if (!pushResult.success) {
             if (pushResult.error.code === "RATE_LIMITED") {
-                throw new Error("Rate limited during push");
+                throw new Error("GitHub Rate limit exceeded");
             }
             throw new Error(pushResult.error.message);
         }

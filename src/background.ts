@@ -124,7 +124,7 @@ chrome.runtime.onMessage.addListener((message: Message, sender, sendResponse) =>
             return true;
 
         case "SYNC_LOGIN":
-            handleSyncLogin(sendResponse);
+            handleSyncLogin(message.payload as { token?: string }, sendResponse);
             return true;
 
         case "SYNC_LOGOUT":
@@ -285,13 +285,18 @@ async function handleSyncStatus(
 }
 
 async function handleSyncLogin(
+    payload: { token?: string } | undefined,
     sendResponse: (response: unknown) => void
 ): Promise<void> {
     try {
         const syncManager = await ensureSyncInitialized();
-        const success = await syncManager.login();
+        const result = await syncManager.login(payload?.token || "");
 
-        sendResponse({ success, state: syncManager.getState() });
+        if (result.success) {
+            sendResponse({ success: true, state: syncManager.getState() });
+        } else {
+            sendResponse({ success: false, error: result.error.message });
+        }
     } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : String(error);
         console.error("Gemini Council (BG): Login error:", errorMessage);

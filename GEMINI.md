@@ -30,9 +30,10 @@
 ## 4. ARCHITECTURE
 * **Patterns**: Dependency Injection (Services), EventBus (Content<->BG), SoC (UI != API).
 * **Anti-Patterns**: Hardcoded models (fetch from API), Prompt Leakage in logs, `any` type.
+* **Sync**: GitHub Gist based (Personal Access Token).
 
 ## 5. TESTING (Vitest/jsdom)
-* **Mocks**: Stub `global.fetch` (NEVER real net). Mock `chrome.runtime`, `chrome.storage`, `pdf.js`.
+* **Mocks**: Stub `global.fetch` (NEVER real net). Mock `chrome.runtime`, `chrome.storage`.
 * **Scope**: Unit test logic; Integration test flows.
 
 ## 6. STRUCTURE MAP
@@ -41,6 +42,7 @@
 * `src/features/council/ui`: Sidecar Component (Split-View).
 * `src/core/types/storage.types.ts`: Storage schemas (Zod).
 * `src/core/services/SyncManager.ts`: Sync Orchestration.
+* `src/core/services/GistClient.ts`: GitHub Gist Sync Client.
 * `src/features/council/storage`: Local persistence & Hydration.
 * `src/features/council/parsers`: PDF/Text Extractors.
 * `src/pages/content/council-injector.ts`: Bootstrapper.

@@ -17,14 +17,21 @@ await Bun.build({
     target: "browser",
     define: {
         "process.env.OPENROUTER_API_KEY": JSON.stringify(Bun.env.OPENROUTER_API_KEY || ""),
+        "process.env.GITHUB_GIST_API_KEY": JSON.stringify(Bun.env.GITHUB_GIST_API_KEY || ""),
     },
     minify: false, // Keep it readable for now
 });
 
 if (Bun.env.OPENROUTER_API_KEY) {
-    console.log("Injecting API Key from .env (Length: " + Bun.env.OPENROUTER_API_KEY.length + ")");
+    console.log("Injecting OpenRouter API Key from .env (Length: " + Bun.env.OPENROUTER_API_KEY.length + ")");
 } else {
     console.warn("WARNING: No OPENROUTER_API_KEY found in environment!");
+}
+
+if (Bun.env.GITHUB_GIST_API_KEY) {
+    console.log("Injecting GitHub Gist API Key from .env (Length: " + Bun.env.GITHUB_GIST_API_KEY.length + ")");
+} else {
+    console.warn("WARNING: No GITHUB_GIST_API_KEY found in environment!");
 }
 
 // Copy static assets

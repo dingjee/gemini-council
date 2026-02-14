@@ -260,12 +260,13 @@ export class StorageBridge {
     }
 
     /**
-     * Login to sync
+     * Login to sync (GitHub Token)
      */
-    static async login(): Promise<SyncStatusResponse> {
+    static async login(token?: string): Promise<SyncStatusResponse> {
         try {
             const response = await chrome.runtime.sendMessage({
                 type: "SYNC_LOGIN",
+                payload: { token: token }
             });
 
             return response;

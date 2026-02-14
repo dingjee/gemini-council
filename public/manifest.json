@@ -5,20 +5,12 @@
   "description": "Enhances Google Gemini with a secondary opinion layer and cloud sync.",
   "permissions": [
     "storage",
-    "activeTab",
-    "identity"
+    "activeTab"
   ],
   "host_permissions": [
     "https://gemini.google.com/*",
-    "https://www.googleapis.com/*",
-    "https://accounts.google.com/*"
+    "https://api.github.com/*"
   ],
-  "oauth2": {
-    "client_id": "911981025593-o115j55ebtpa8a6q3c4c0daq8kpp9nbc.apps.googleusercontent.com",
-    "scopes": [
-      "https://www.googleapis.com/auth/drive.appdata"
-    ]
-  },
   "content_scripts": [
     {
       "matches": [
