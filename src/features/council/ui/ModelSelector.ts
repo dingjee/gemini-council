@@ -46,6 +46,13 @@ const EXTERNAL_MODEL_GROUPS: ModelGroup[] = [
 ];
 
 const NATIVE_MODEL_ID_PREFIX = "gemini-native-";
+const DEBUG_MODEL_SELECTOR = true;
+
+function debugLog(...args: unknown[]) {
+    if (DEBUG_MODEL_SELECTOR) {
+        console.log('[ModelSelector]', ...args);
+    }
+}
 
 export class ModelSelector {
     private container: HTMLElement | null = null;
@@ -58,6 +65,7 @@ export class ModelSelector {
     private observer: MutationObserver | null = null;
 
     private nativeGeminiModels: ModelOption[] = [];
+    private hasScannedPopup: boolean = false;
     private nativeModelPicker: HTMLElement | null = null;
     private lastNativeModelText: string = "";
 
@@ -72,6 +80,7 @@ export class ModelSelector {
         this.onModelChange = onModelChange;
         this.injectStyles();
         this.startObserving();
+        debugLog('Initialized');
     }
 
     private injectStyles() {
@@ -248,6 +257,10 @@ export class ModelSelector {
                 font-family: 'Google Sans', Roboto, sans-serif;
                 font-size: 11px;
                 color: rgba(255, 255, 255, 0.4);
+                max-width: 150px;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
             }
 
             .council-option-check {
@@ -331,14 +344,22 @@ export class ModelSelector {
 
     private scanNativeModelPicker(): void {
         const modelPicker = document.querySelector('.model-picker-container') as HTMLElement;
-        if (!modelPicker) return;
+        if (!modelPicker) {
+            return;
+        }
+
+        if (this.nativeModelPicker === modelPicker) {
+            return;
+        }
 
         this.nativeModelPicker = modelPicker;
+        debugLog('Found model-picker-container');
 
-        const currentModelBtn = modelPicker.querySelector('button[aria-haspopup="listbox"]');
+        const currentModelBtn = modelPicker.querySelector('button[aria-haspopup="menu"], button[aria-haspopup="listbox"]');
         if (currentModelBtn) {
-            const modelText = currentModelBtn.textContent?.trim() || "";
+            const modelText = this.extractModelNameFromButton(currentModelBtn);
             if (modelText && modelText !== this.lastNativeModelText) {
+                debugLog('Current model button text:', modelText);
                 this.lastNativeModelText = modelText;
                 if (!this.activeModel || this.activeModel.isNative) {
                     this.activeModel = {
@@ -351,8 +372,6 @@ export class ModelSelector {
                 }
             }
         }
-
-        this.nativeGeminiModels = this.extractNativeModels(modelPicker);
     }
 
     private extractNativeModels(picker: HTMLElement): ModelOption[] {
@@ -414,7 +433,8 @@ export class ModelSelector {
     }
 
     private async fetchNativeModels(): Promise<ModelOption[]> {
-        if (this.nativeGeminiModels.length > 0) {
+        if (this.hasScannedPopup && this.nativeGeminiModels.length > 0) {
+            debugLog('Returning cached models:', this.nativeGeminiModels);
             return this.nativeGeminiModels;
         }
 
@@ -422,47 +442,113 @@ export class ModelSelector {
             this.scanNativeModelPicker();
         }
 
+        debugLog('Fetching native models, picker:', this.nativeModelPicker);
+
         if (this.nativeModelPicker) {
-            const triggerBtn = this.nativeModelPicker.querySelector('button[aria-haspopup="listbox"]') as HTMLElement;
+            const triggerBtn = this.nativeModelPicker.querySelector('button[aria-haspopup="menu"], button[aria-haspopup="listbox"]') as HTMLElement;
+            debugLog('Trigger button:', triggerBtn);
+            
             if (triggerBtn) {
                 triggerBtn.click();
+                debugLog('Clicked trigger button, waiting for menu...');
                 
-                await new Promise(resolve => setTimeout(resolve, 300));
+                await new Promise(resolve => setTimeout(resolve, 500));
                 
-                const menuContent = document.querySelector('.mat-mdc-menu-content') || 
-                                   document.querySelector('[role="listbox"]') || 
-                                   document.querySelector('.mat-mdc-menu-panel');
+                const overlaySelectors = [
+                    '.cdk-overlay-connected-position-bounding-box',
+                    '.cdk-overlay-container',
+                    '.cdk-overlay-pane'
+                ];
+                
+                let overlayContainer: Element | null = null;
+                for (const selector of overlaySelectors) {
+                    overlayContainer = document.querySelector(selector);
+                    if (overlayContainer) {
+                        debugLog('Found overlay with selector:', selector);
+                        break;
+                    }
+                }
+                
+                debugLog('Overlay container:', overlayContainer);
+                
+                if (overlayContainer) {
+                    debugLog('Overlay container HTML:', overlayContainer.innerHTML.substring(0, 800));
+                }
+                
+                const menuSelectors = [
+                    '.mat-mdc-menu-content',
+                    '.cdk-overlay-pane .mat-mdc-menu-content',
+                    '[role="menu"]',
+                    '.mat-mdc-menu-panel',
+                    '.gds-mode-switch-menu'
+                ];
+                
+                let menuContent: Element | null = null;
+                for (const selector of menuSelectors) {
+                    menuContent = document.querySelector(selector);
+                    if (menuContent) {
+                        debugLog('Found menu with selector:', selector);
+                        break;
+                    }
+                }
+                
+                debugLog('Menu content:', menuContent);
                 
                 if (menuContent) {
-                    const menuItems = menuContent.querySelectorAll('.mat-mdc-menu-item, button[role="menuitemradio"], button');
-                    menuItems.forEach((item) => {
-                        const modeTitle = item.querySelector('.mode-title');
-                        const text = modeTitle ? modeTitle.textContent?.trim() : item.textContent?.trim();
-                        const cleanText = text?.split('\n')[0]?.trim();
+                    const allButtons = menuContent.querySelectorAll('button.bard-mode-list-button, button[role="menuitemradio"], button');
+                    debugLog('All buttons in menu:', allButtons.length);
+                    
+                    allButtons.forEach((btn, index) => {
+                        const modeTitle = btn.querySelector('.mode-title');
+                        const modeDesc = btn.querySelector('.mode-desc');
                         
-                        if (cleanText && cleanText.length > 0 && cleanText.length < 50) {
-                            const modelId = NATIVE_MODEL_ID_PREFIX + this.sanitizeModelId(cleanText);
+                        let name = '';
+                        let desc = 'Native';
+                        
+                        if (modeTitle) {
+                            name = modeTitle.textContent?.trim() || '';
+                        }
+                        if (modeDesc) {
+                            desc = modeDesc.textContent?.trim() || 'Native';
+                        }
+                        
+                        debugLog(`Button ${index}:`, {
+                            hasModeTitle: !!modeTitle,
+                            name,
+                            desc,
+                            className: btn.className.substring(0, 50)
+                        });
+                        
+                        if (name && name.length > 0 && name.length < 50) {
+                            const modelId = NATIVE_MODEL_ID_PREFIX + this.sanitizeModelId(name);
                             if (!this.nativeGeminiModels.some(m => m.id === modelId)) {
                                 this.nativeGeminiModels.push({
                                     id: modelId,
-                                    name: cleanText,
-                                    description: "Native",
+                                    name: name,
+                                    description: desc,
                                     isNative: true
                                 });
+                                debugLog('Added model:', name, desc);
                             }
                         }
                     });
                 }
                 
-                const closeBtn = document.body.querySelector('.cdk-overlay-backdrop') as HTMLElement;
+                const closeBtn = document.querySelector('.cdk-overlay-backdrop') as HTMLElement;
                 if (closeBtn) {
+                    debugLog('Closing menu via backdrop');
                     closeBtn.click();
                 } else {
+                    debugLog('Closing menu via trigger button');
                     triggerBtn.click();
                 }
+                
+                await new Promise(resolve => setTimeout(resolve, 100));
             }
         }
 
+        this.hasScannedPopup = true;
+        debugLog('Final models list:', this.nativeGeminiModels);
         return this.nativeGeminiModels.length > 0 ? this.nativeGeminiModels : this.getDefaultGeminiModels();
     }
 
@@ -470,21 +556,49 @@ export class ModelSelector {
         return text.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
     }
 
+    private extractModelNameFromButton(button: Element | null): string {
+        if (!button) return "";
+        const firstSpan = button.querySelector('span');
+        if (firstSpan) {
+            const innerSpan = firstSpan.querySelector('span');
+            if (innerSpan && innerSpan.textContent) {
+                return innerSpan.textContent.trim();
+            }
+            if (firstSpan.textContent) {
+                return firstSpan.textContent.trim().split('\n')[0].trim();
+            }
+        }
+        const text = button.textContent?.trim() || "";
+        return text.split('\n')[0].trim();
+    }
+
     private tryInject() {
         this.scanNativeModelPicker();
 
+        debugLog('tryInject - nativeModelPicker:', !!this.nativeModelPicker, 'injected:', this.injected);
+
         if (this.nativeModelPicker && this.nativeModelPicker.parentElement) {
-            this.injectBesideNativePicker();
+            if (this.injected && this.container && this.container.parentElement !== this.nativeModelPicker.parentElement) {
+                debugLog('Moving selector to beside native picker');
+                this.nativeModelPicker.parentElement.insertBefore(this.container, this.nativeModelPicker.nextSibling);
+                this.hideNativePicker();
+            } else if (!this.injected) {
+                this.injectBesideNativePicker();
+            }
             return;
         }
 
+        if (this.injected) return;
+
         const trailingActions = document.querySelector('.trailing-actions-wrapper');
+        debugLog('tryInject - trailingActions:', !!trailingActions);
         if (trailingActions) {
             this.injectInto(trailingActions as HTMLElement);
             return;
         }
 
         const inputArea = document.querySelector('[data-node-type="input-area"]');
+        debugLog('tryInject - inputArea:', !!inputArea);
         if (inputArea) {
             const wrapper = inputArea.querySelector('.trailing-actions-wrapper');
             if (wrapper) {
@@ -496,6 +610,7 @@ export class ModelSelector {
     private injectBesideNativePicker() {
         if (this.injected || !this.nativeModelPicker || document.getElementById("gemini-council-selector")) return;
 
+        debugLog('injectBesideNativePicker called');
         this.hideNativePicker();
 
         this.container = document.createElement("div");
@@ -527,16 +642,20 @@ export class ModelSelector {
         this.triggerButton = document.createElement("button");
         this.triggerButton.className = "council-trigger";
         this.updateTriggerButton();
-        this.triggerButton.onclick = (e) => {
+        
+        this.triggerButton.addEventListener('click', (e) => {
+            debugLog('Trigger button clicked!');
             e.stopPropagation();
             e.preventDefault();
             this.toggleDropdown();
-        };
+        });
 
         this.container.appendChild(this.contextToggleContainer);
         this.container.appendChild(this.triggerButton);
 
         this.nativeModelPicker.parentElement.insertBefore(this.container, this.nativeModelPicker.nextSibling);
+
+        this.initializeActiveModel();
 
         document.addEventListener('click', (e) => {
             if (this.isOpen && !this.container?.contains(e.target as Node) && !this.dropdown?.contains(e.target as Node)) {
@@ -545,11 +664,13 @@ export class ModelSelector {
         });
 
         this.injected = true;
-        console.log("Gemini Council: Model selector injected beside native picker");
+        debugLog('Model selector injected beside native picker');
     }
 
     private injectInto(parent: HTMLElement) {
         if (this.injected || document.getElementById("gemini-council-selector")) return;
+
+        debugLog('injectInto called, parent:', parent.className);
 
         this.container = document.createElement("div");
         this.container.id = "gemini-council-selector";
@@ -580,16 +701,20 @@ export class ModelSelector {
         this.triggerButton = document.createElement("button");
         this.triggerButton.className = "council-trigger";
         this.updateTriggerButton();
-        this.triggerButton.onclick = (e) => {
+        
+        this.triggerButton.addEventListener('click', (e) => {
+            debugLog('Trigger button clicked!');
             e.stopPropagation();
             e.preventDefault();
             this.toggleDropdown();
-        };
+        });
 
         this.container.appendChild(this.contextToggleContainer);
         this.container.appendChild(this.triggerButton);
 
         parent.insertBefore(this.container, parent.firstChild);
+
+        this.initializeActiveModel();
 
         document.addEventListener('click', (e) => {
             if (this.isOpen && !this.container?.contains(e.target as Node) && !this.dropdown?.contains(e.target as Node)) {
@@ -598,7 +723,7 @@ export class ModelSelector {
         });
 
         this.injected = true;
-        console.log("Gemini Council: Model selector injected");
+        debugLog('Model selector injected into', parent.className);
     }
 
     private createDropdown(): HTMLElement {
@@ -660,6 +785,33 @@ export class ModelSelector {
         ];
     }
 
+    private initializeActiveModel() {
+        if (this.activeModel) return;
+        
+        if (this.lastNativeModelText) {
+            this.activeModel = {
+                id: NATIVE_MODEL_ID_PREFIX + this.sanitizeModelId(this.lastNativeModelText),
+                name: this.lastNativeModelText,
+                description: "Native",
+                isNative: true
+            };
+        } else {
+            const currentModelBtn = this.nativeModelPicker?.querySelector('button[aria-haspopup="menu"], button[aria-haspopup="listbox"]');
+            const modelText = this.extractModelNameFromButton(currentModelBtn);
+            if (modelText) {
+                this.activeModel = {
+                    id: NATIVE_MODEL_ID_PREFIX + this.sanitizeModelId(modelText),
+                    name: modelText,
+                    description: "Native",
+                    isNative: true
+                };
+                this.lastNativeModelText = modelText;
+            }
+        }
+        
+        this.updateTriggerButton();
+    }
+
     private updateTriggerButton() {
         if (!this.triggerButton) return;
 
@@ -693,6 +845,7 @@ export class ModelSelector {
     }
 
     private toggleDropdown() {
+        debugLog('toggleDropdown called, isOpen:', this.isOpen);
         if (this.isOpen) {
             this.closeDropdown();
         } else {
@@ -701,24 +854,27 @@ export class ModelSelector {
     }
 
     private async openDropdown() {
+        debugLog('openDropdown called');
         this.hideNativePicker();
         
         if (this.dropdown) {
             this.dropdown.remove();
         }
         
+        debugLog('Calling fetchNativeModels...');
         await this.fetchNativeModels();
+        debugLog('fetchNativeModels completed');
         
         this.dropdown = this.createDropdown();
+        this.dropdown.style.visibility = 'hidden';
         document.body.appendChild(this.dropdown);
         
+        this.positionDropdown();
+        
         this.isOpen = true;
+        this.dropdown.style.visibility = 'visible';
         this.dropdown.classList.add("open");
         this.updateTriggerButton();
-        
-        requestAnimationFrame(() => {
-            this.positionDropdown();
-        });
     }
 
     private positionDropdown() {

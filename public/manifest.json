@@ -3,6 +3,10 @@
   "name": "Gemini Council",
   "version": "1.1.0",
   "description": "Enhances Google Gemini with a secondary opinion layer and cloud sync.",
+  "icons": {
+    "32": "icon-32.png",
+    "128": "icon-128.png"
+  },
   "permissions": [
     "storage",
     "activeTab"
