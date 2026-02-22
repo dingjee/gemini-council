@@ -31,27 +31,84 @@ export class MessageRenderer {
                 grid-column: 1 / -1;
             }
 
-            /* User Query Bubble Wrapper */
+            /* Hydrated Group Container - wraps user message + model response */
+            .council-hydrated-group {
+                display: contents;
+            }
+
+            /* User Query Bubble Wrapper - Native Gemini Style */
             .council-user-query {
                 display: flex;
+                flex-direction: row;
                 justify-content: flex-end;
+                align-items: center;
                 padding: 0 24px 16px 24px;
                 width: 100%;
                 box-sizing: border-box;
                 flex: 0 0 auto;
+                gap: 8px;
             }
 
+            .council-user-query-actions {
+                display: flex;
+                flex-direction: column;
+                gap: 4px;
+                flex-shrink: 0;
+            }
+
+            .council-user-action-btn {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                width: 36px;
+                height: 36px;
+                padding: 0;
+                background: transparent;
+                border: none;
+                border-radius: 50%;
+                color: var(--gem-sys-color--on-surface-variant, #9aa0a6);
+                cursor: pointer;
+                transition: background-color 0.2s, color 0.2s;
+                position: relative;
+                overflow: hidden;
+            }
+            .council-user-action-btn::before {
+                content: '';
+                position: absolute;
+                inset: 0;
+                background: currentColor;
+                opacity: 0;
+                transition: opacity 0.2s;
+            }
+            .council-user-action-btn:hover::before { opacity: 0.08; }
+            .council-user-action-btn:hover { color: var(--gem-sys-color--on-surface, #e3e3e3); }
+            .council-user-action-btn:active::before { opacity: 0.12; }
+            .council-user-action-btn svg {
+                width: 20px;
+                height: 20px;
+                fill: currentColor;
+            }
+            .council-user-action-btn.copied { color: var(--gem-sys-color--primary, #8ab4f8); }
+
             .council-user-bubble {
-                max-width: 80%;
-                padding: 12px 16px;
+                display: inline-flex;
+                flex-direction: column;
+                max-width: 85%;
+                padding: 16px 24px;
                 background: var(--gem-sys-color--surface-container-highest, #3c4043);
-                border-radius: 20px;
+                border-radius: 24px;
+                border-bottom-right-radius: 8px;
                 color: var(--gem-sys-color--on-surface, #e3e3e3);
                 font-family: 'Google Sans', Roboto, sans-serif;
                 font-size: 16px;
-                line-height: 1.5;
+                line-height: 1.6;
                 word-wrap: break-word;
-                box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+                box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+            }
+
+            .council-user-query-text {
+                margin: 0;
+                white-space: pre-wrap;
             }
 
             /* Model Response Container */
@@ -232,31 +289,56 @@ export class MessageRenderer {
                 font-size: 14px;
             }
 
-            /* Action Buttons */
+            /* Action Buttons - Native Gemini Style */
             .council-actions {
                 display: flex;
-                gap: 8px;
-                margin-top: 8px;
+                flex-direction: row;
+                gap: 4px;
+                margin-top: 12px;
                 opacity: 0;
                 transition: opacity 0.2s;
             }
             .council-model-response:hover .council-actions { opacity: 1; }
             .council-action-btn {
-                padding: 4px 8px;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                width: 36px;
+                height: 36px;
+                padding: 0;
                 background: transparent;
                 border: none;
-                border-radius: 4px;
+                border-radius: 50%;
                 color: var(--gem-sys-color--on-surface-variant, #9aa0a6);
                 cursor: pointer;
-                transition: background-color 0.2s;
-                font-size: 12px;
-                display: flex;
-                align-items: center;
-                gap: 4px;
+                transition: background-color 0.2s, color 0.2s;
+                position: relative;
+                overflow: hidden;
+            }
+            .council-action-btn::before {
+                content: '';
+                position: absolute;
+                inset: 0;
+                background: currentColor;
+                opacity: 0;
+                transition: opacity 0.2s;
+            }
+            .council-action-btn:hover::before {
+                opacity: 0.08;
             }
             .council-action-btn:hover {
-                background: rgba(255, 255, 255, 0.08);
                 color: var(--gem-sys-color--on-surface, #e3e3e3);
+            }
+            .council-action-btn:active::before {
+                opacity: 0.12;
+            }
+            .council-action-btn svg {
+                width: 20px;
+                height: 20px;
+                fill: currentColor;
+            }
+            .council-action-btn.copied {
+                color: var(--gem-sys-color--primary, #8ab4f8);
             }
         `;
         document.head.appendChild(style);
@@ -289,20 +371,51 @@ export class MessageRenderer {
         return '✨';
     }
 
-    public static createUserMessage(text: string): HTMLElement {
+    private static COPY_ICON = `<svg viewBox="0 0 24 24"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>`;
+    private static COPY_DONE_ICON = `<svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>`;
+    private static REDO_ICON = `<svg viewBox="0 0 24 24"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>`;
+    private static EDIT_ICON = `<svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>`;
+
+    public static createUserMessage(text: string, showActions: boolean = true): HTMLElement {
         this.injectStyles();
         const container = document.createElement('div');
         container.className = 'council-conversation-container';
         container.id = `council-msg-${Date.now()}`;
+        container.dataset.userQuery = text;
 
         const userQuery = document.createElement('div');
         userQuery.className = 'council-user-query';
 
         const bubble = document.createElement('div');
         bubble.className = 'council-user-bubble';
-        bubble.textContent = text;
+        bubble.innerHTML = `<p class="council-user-query-text">${this.escapeHtml(text)}</p>`;
 
         userQuery.appendChild(bubble);
+
+        if (showActions) {
+            const actions = document.createElement('div');
+            actions.className = 'council-user-query-actions';
+
+            const copyBtn = document.createElement('button');
+            copyBtn.className = 'council-user-action-btn';
+            copyBtn.title = 'Copy prompt';
+            copyBtn.setAttribute('aria-label', 'Copy prompt');
+            copyBtn.innerHTML = this.COPY_ICON;
+            copyBtn.addEventListener('click', () => {
+                navigator.clipboard.writeText(text).then(() => {
+                    copyBtn.innerHTML = this.COPY_DONE_ICON;
+                    copyBtn.classList.add('copied');
+                    setTimeout(() => {
+                        copyBtn.innerHTML = this.COPY_ICON;
+                        copyBtn.classList.remove('copied');
+                    }, 2000);
+                });
+            });
+
+            actions.appendChild(copyBtn);
+            userQuery.appendChild(actions);
+        }
+
         container.appendChild(userQuery);
         return container;
     }
@@ -331,11 +444,21 @@ export class MessageRenderer {
         return response;
     }
 
-    public static createModelResponse(modelId: string, modelName: string, content: string): HTMLElement {
+    public static createModelResponse(
+        modelId: string,
+        modelName: string,
+        content: string,
+        userPrompt?: string
+    ): HTMLElement {
         this.injectStyles();
         const response = document.createElement('div');
         response.className = 'council-model-response';
         response.id = `council-response-${Date.now()}`;
+        response.dataset.modelId = modelId;
+        response.dataset.modelName = modelName;
+        if (userPrompt) {
+            response.dataset.userPrompt = userPrompt;
+        }
 
         const formattedContent = this.formatMarkdown(content);
 
@@ -348,38 +471,61 @@ export class MessageRenderer {
                 </div>
                 <div class="council-markdown" data-raw-content="${this.escapeHtml(content)}">${formattedContent}</div>
                 <div class="council-actions">
-                    <button class="council-action-btn copy-btn" title="Copy">
-                        📋 Copy
+                    <button class="council-action-btn copy-btn" title="Copy response" aria-label="Copy">
+                        ${this.COPY_ICON}
+                    </button>
+                    <button class="council-action-btn redo-btn" title="Redo" aria-label="Redo">
+                        ${this.REDO_ICON}
                     </button>
                 </div>
             </div>`;
 
-        // Attach event listeners
-        const copyBtn = response.querySelector('.copy-btn');
+        const copyBtn = response.querySelector('.copy-btn') as HTMLButtonElement;
         if (copyBtn) {
             copyBtn.addEventListener('click', () => {
-                const rawContent = response.querySelector('.council-markdown')?.getAttribute('data-raw-content') || "";
-                // Decode HTML entities in raw content if needed, or just use the raw 'content' passed to function
-                // Actually, accessing 'content' directly here via closure is easiest if we don't rely on DOM attribute
                 navigator.clipboard.writeText(content).then(() => {
-                    const originalText = copyBtn.textContent;
-                    copyBtn.textContent = "✅ Copied";
+                    copyBtn.innerHTML = this.COPY_DONE_ICON;
+                    copyBtn.classList.add('copied');
                     setTimeout(() => {
-                        if (copyBtn) copyBtn.textContent = originalText;
+                        copyBtn.innerHTML = this.COPY_ICON;
+                        copyBtn.classList.remove('copied');
                     }, 2000);
                 }).catch(err => {
                     console.error('Failed to copy text: ', err);
                 });
             });
         }
+
+        const redoBtn = response.querySelector('.redo-btn') as HTMLButtonElement;
+        if (redoBtn && userPrompt) {
+            redoBtn.addEventListener('click', () => {
+                response.dispatchEvent(new CustomEvent('council:redo', {
+                    bubbles: true,
+                    detail: { modelId, modelName, userPrompt }
+                }));
+            });
+        } else if (redoBtn) {
+            redoBtn.style.display = 'none';
+        }
+
         return response;
     }
 
-    public static createErrorResponse(modelId: string, modelName: string, error: string): HTMLElement {
+    public static createErrorResponse(
+        modelId: string,
+        modelName: string,
+        error: string,
+        userPrompt?: string
+    ): HTMLElement {
         this.injectStyles();
         const response = document.createElement('div');
         response.className = 'council-model-response';
         response.id = `council-error-${Date.now()}`;
+        response.dataset.modelId = modelId;
+        response.dataset.modelName = modelName;
+        if (userPrompt) {
+            response.dataset.userPrompt = userPrompt;
+        }
 
         let errorMessage = this.escapeHtml(error);
         if (error.includes("Receiving end does not exist") || error.includes("Could not establish connection")) {
@@ -394,7 +540,25 @@ export class MessageRenderer {
                     <span class="council-model-badge">Error</span>
                 </div>
                 <div class="council-error">${errorMessage}</div>
+                <div class="council-actions">
+                    <button class="council-action-btn redo-btn" title="Retry" aria-label="Retry">
+                        ${this.REDO_ICON}
+                    </button>
+                </div>
             </div>`;
+
+        const redoBtn = response.querySelector('.redo-btn') as HTMLButtonElement;
+        if (redoBtn && userPrompt) {
+            redoBtn.addEventListener('click', () => {
+                response.dispatchEvent(new CustomEvent('council:redo', {
+                    bubbles: true,
+                    detail: { modelId, modelName, userPrompt }
+                }));
+            });
+        } else if (redoBtn) {
+            redoBtn.style.display = 'none';
+        }
+
         return response;
     }
 
@@ -405,7 +569,7 @@ export class MessageRenderer {
         const tokens: string[] = [];
         const protect = (content: string) => {
             tokens.push(content);
-            return `__TOKEN_${tokens.length - 1}__`;
+            return `%%TOKEN_${tokens.length - 1}%%`;
         };
 
         let processed = text;
@@ -487,10 +651,7 @@ export class MessageRenderer {
         processed = processed.replace(/<p>(<ul>.*?<\/ul>)<\/p>/g, '$1');
 
         // Restore Tokens
-        // Need to be careful because escapeHtml escaped our tokens!
-        // The tokens look like __TOKEN_0__ but processed became __TOKEN_0__ (safe)
-        // Wait, escapeHtml converts & to &amp;. So __TOKEN_0__ remains __TOKEN_0__.
-        processed = processed.replace(/__TOKEN_(\d+)__/g, (match, id) => tokens[parseInt(id)]);
+        processed = processed.replace(/%%TOKEN_(\d+)%%/g, (match, id) => tokens[parseInt(id)]);
 
         // Convert single newlines to <br> inside paragraphs?
         // processed = processed.replace(/([^>])\n([^<])/g, '$1<br>$2');

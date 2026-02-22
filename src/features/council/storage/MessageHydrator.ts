@@ -110,6 +110,7 @@ export class MessageHydrator {
 
     /**
      * Inject a single message into the DOM at the correct position
+     * This now injects both the user message AND the model response
      */
     private async injectMessage(
         message: ExternalMessage,
@@ -121,47 +122,49 @@ export class MessageHydrator {
             return;
         }
 
-        // Find the anchor element
         const anchorElement = anchor
             ? await this.findAnchorElement(chatContainer, anchor)
             : null;
 
-        // Create the message element
-        const messageElement = MessageRenderer.createModelResponse(
+        const container = document.createElement('div');
+        container.className = 'council-hydrated-group';
+        container.dataset.hydratedMessageId = message.id;
+
+        const userMessage = MessageRenderer.createUserMessage(message.userPrompt, true);
+        userMessage.classList.add('council-hydrated');
+        container.appendChild(userMessage);
+
+        const modelResponse = MessageRenderer.createModelResponse(
             message.modelId,
             message.modelName,
-            message.content
+            message.content,
+            message.userPrompt
         );
+        modelResponse.dataset.hydratedMessageId = message.id;
+        modelResponse.classList.add('council-hydrated');
+        container.appendChild(modelResponse);
 
-        // Mark as hydrated (to distinguish from live responses)
-        messageElement.dataset.hydratedMessageId = message.id;
-        messageElement.classList.add("council-hydrated");
-
-        // Inject at the correct position
         if (anchorElement) {
-            // Insert after the anchor element
             if (anchorElement.nextSibling) {
-                chatContainer.insertBefore(messageElement, anchorElement.nextSibling);
+                chatContainer.insertBefore(container, anchorElement.nextSibling);
             } else {
-                chatContainer.appendChild(messageElement);
+                chatContainer.appendChild(container);
             }
         } else if (anchor && anchor.positionIndex >= 0) {
-            // Fallback: use position index
             const children = Array.from(chatContainer.children);
             const insertIndex = Math.min(anchor.positionIndex, children.length);
 
             const insertBeforeElement = children[insertIndex];
             if (insertIndex < children.length && insertBeforeElement) {
-                chatContainer.insertBefore(messageElement, insertBeforeElement);
+                chatContainer.insertBefore(container, insertBeforeElement);
             } else {
-                chatContainer.appendChild(messageElement);
+                chatContainer.appendChild(container);
             }
         } else {
-            // Last resort: append to end
-            chatContainer.appendChild(messageElement);
+            chatContainer.appendChild(container);
         }
 
-        console.log(`MessageHydrator: Injected message ${message.id}`);
+        console.log(`MessageHydrator: Injected message ${message.id} with user prompt`);
     }
 
     /**

@@ -42,7 +42,20 @@ export class OpenRouterService {
         });
 
         if (!response.ok) {
-            throw new Error(`OpenRouter API Error: ${response.statusText}`);
+            let errorDetail = response.statusText;
+            try {
+                const errorData = await response.json();
+                if (errorData?.error?.message) {
+                    errorDetail = errorData.error.message;
+                } else if (typeof errorData?.error === "string") {
+                    errorDetail = errorData.error;
+                } else if (errorData?.message) {
+                    errorDetail = errorData.message;
+                }
+            } catch {
+                // Ignore JSON parse errors, use statusText
+            }
+            throw new Error(`OpenRouter API Error: ${errorDetail}`);
         }
 
         const data = await response.json();

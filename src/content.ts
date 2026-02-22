@@ -38,6 +38,12 @@ class CouncilManager {
 
         // Initialize storage hydration
         this.initializeHydration();
+
+        // Listen for redo events from message actions
+        document.addEventListener('council:redo', ((e: CustomEvent) => {
+            const { modelId, modelName, userPrompt } = e.detail;
+            this.redoQuery(modelId, modelName, userPrompt);
+        }) as EventListener);
     }
 
     /**
@@ -277,7 +283,7 @@ class CouncilManager {
 
             if (response.success && response.data?.choices?.[0]?.message?.content) {
                 const content = response.data.choices[0].message.content;
-                const responseElement = MessageRenderer.createModelResponse(modelId, modelName, content);
+                const responseElement = MessageRenderer.createModelResponse(modelId, modelName, content, text);
                 MessageRenderer.replaceLoading(loadingElement, responseElement);
 
                 // Persist to storage (async, don't await)
@@ -290,13 +296,52 @@ class CouncilManager {
                 }, anchor);
             } else {
                 const error = response.error || "Unknown error";
-                const errorElement = MessageRenderer.createErrorResponse(modelId, modelName, error);
+                const errorElement = MessageRenderer.createErrorResponse(modelId, modelName, error, text);
                 MessageRenderer.replaceLoading(loadingElement, errorElement);
             }
         } catch (e: unknown) {
             const errorMessage = e instanceof Error ? e.message : String(e);
             console.error("Gemini Council: Error:", errorMessage);
-            const errorElement = MessageRenderer.createErrorResponse(modelId, modelName, errorMessage);
+            const errorElement = MessageRenderer.createErrorResponse(modelId, modelName, errorMessage, text);
+            MessageRenderer.replaceLoading(loadingElement, errorElement);
+        }
+    }
+
+    /**
+     * Redo a previous query
+     */
+    private async redoQuery(modelId: string, modelName: string, userPrompt: string): Promise<void> {
+        console.log("Gemini Council: Redoing query for", modelId);
+
+        const chatContainer = MessageRenderer.findChatContainer();
+        if (!chatContainer) {
+            console.error("Gemini Council: Could not find chat container");
+            return;
+        }
+
+        const loadingElement = MessageRenderer.createLoadingResponse(modelId, modelName);
+        chatContainer.appendChild(loadingElement);
+        loadingElement.scrollIntoView({ behavior: "smooth", block: "end" });
+
+        try {
+            const response = await chrome.runtime.sendMessage({
+                type: "COUNCIL_QUERY",
+                payload: { model: modelId, prompt: userPrompt }
+            });
+
+            if (response.success && response.data?.choices?.[0]?.message?.content) {
+                const content = response.data.choices[0].message.content;
+                const responseElement = MessageRenderer.createModelResponse(modelId, modelName, content, userPrompt);
+                MessageRenderer.replaceLoading(loadingElement, responseElement);
+            } else {
+                const error = response.error || "Unknown error";
+                const errorElement = MessageRenderer.createErrorResponse(modelId, modelName, error, userPrompt);
+                MessageRenderer.replaceLoading(loadingElement, errorElement);
+            }
+        } catch (e: unknown) {
+            const errorMessage = e instanceof Error ? e.message : String(e);
+            console.error("Gemini Council: Redo error:", errorMessage);
+            const errorElement = MessageRenderer.createErrorResponse(modelId, modelName, errorMessage, userPrompt);
             MessageRenderer.replaceLoading(loadingElement, errorElement);
         }
     }
