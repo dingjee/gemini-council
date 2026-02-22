@@ -346,14 +346,33 @@ export class MessageRenderer {
     }
 
     public static findChatContainer(): HTMLElement | null {
-        const conversationContainer = document.querySelector('.conversation-container');
-        if (conversationContainer?.parentElement) {
-            return conversationContainer.parentElement as HTMLElement;
+        const selectors = [
+            'user-query',
+            'model-response',
+            '.conversation-container'
+        ];
+        
+        for (const sel of selectors) {
+            const el = document.querySelector(sel);
+            if (el) {
+                let container = el.parentElement;
+                while (container) {
+                    if (container.tagName === 'MAIN' || 
+                        container.classList.contains('conversation-container') ||
+                        container.getAttribute('role') === 'main') {
+                        return container as HTMLElement;
+                    }
+                    container = container.parentElement;
+                }
+            }
         }
+
         const chatHistory = document.querySelector('[role="main"] .chat-history');
         if (chatHistory) return chatHistory as HTMLElement;
+
         const main = document.querySelector('main');
         if (main) return main as HTMLElement;
+
         return null;
     }
 
@@ -569,7 +588,7 @@ export class MessageRenderer {
         const tokens: string[] = [];
         const protect = (content: string) => {
             tokens.push(content);
-            return `%%TOKEN_${tokens.length - 1}%%`;
+            return `__TOKEN_${tokens.length - 1}__`;
         };
 
         let processed = text;
@@ -650,11 +669,7 @@ export class MessageRenderer {
         processed = processed.replace(/<p>(<hr.*?>)<\/p>/g, '$1');
         processed = processed.replace(/<p>(<ul>.*?<\/ul>)<\/p>/g, '$1');
 
-        // Restore Tokens
         processed = processed.replace(/%%TOKEN_(\d+)%%/g, (match, id) => tokens[parseInt(id)]);
-
-        // Convert single newlines to <br> inside paragraphs?
-        // processed = processed.replace(/([^>])\n([^<])/g, '$1<br>$2');
 
         return processed;
     }

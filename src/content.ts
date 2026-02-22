@@ -13,6 +13,7 @@ import { MessageRenderer } from "./features/council/ui/MessageRenderer";
 import { DOMContentExtractor } from "./features/council/core/DOMContentExtractor";
 import { StorageBridge } from "./features/council/storage/StorageBridge";
 import { MessageHydrator } from "./features/council/storage/MessageHydrator";
+import { ContextInjector, type CouncilMessageItem } from "./features/council/ui/ContextInjector";
 import type { MessageAnchor } from "./core/types/storage.types";
 
 console.log("Gemini Council: Content script loaded.");
@@ -26,20 +27,18 @@ class CouncilManager {
     private sendButtonContainer: HTMLElement | null = null;
     private observer: MutationObserver | null = null;
     private hydrator: MessageHydrator;
-    // Debounce context checking
+    private contextInjector: ContextInjector;
     private contextCheckTimeout: number | undefined;
 
     constructor() {
         this.selector = new ModelSelector(this.handleModelChange.bind(this));
         this.hydrator = new MessageHydrator();
+        this.contextInjector = ContextInjector.getInstance();
         this.startObserving();
-        // Periodically check context size (every 5s)
         setInterval(() => this.checkContextSize(), 5000);
 
-        // Initialize storage hydration
         this.initializeHydration();
 
-        // Listen for redo events from message actions
         document.addEventListener('council:redo', ((e: CustomEvent) => {
             const { modelId, modelName, userPrompt } = e.detail;
             this.redoQuery(modelId, modelName, userPrompt);
@@ -50,12 +49,13 @@ class CouncilManager {
      * Initialize hydration of stored messages
      */
     private async initializeHydration(): Promise<void> {
-        // Wait a bit for Gemini to finish rendering
         await this.sleep(2000);
 
         try {
             await this.hydrator.hydrate();
             console.log("Gemini Council: Hydration complete");
+            
+            this.updateContextInjector();
         } catch (error) {
             console.warn("Gemini Council: Hydration failed", error);
         }
@@ -64,6 +64,52 @@ class CouncilManager {
     private handleModelChange(model: string) {
         console.log("Gemini Council: Active model changed to", model);
         this.checkContextSize();
+        this.updateContextInjector();
+    }
+
+    private async updateContextInjector(): Promise<void> {
+        const isExternal = this.selector.isExternalModel();
+
+        if (isExternal) {
+            this.contextInjector.hide();
+            return;
+        }
+
+        const councilMessages = this.extractCouncilMessagesFromDOM();
+        if (councilMessages.length > 0) {
+            this.contextInjector.updateMessages(councilMessages);
+            this.contextInjector.show();
+        } else {
+            this.contextInjector.hide();
+        }
+    }
+
+    private extractCouncilMessagesFromDOM(): CouncilMessageItem[] {
+        const messages: CouncilMessageItem[] = [];
+        const containers = document.querySelectorAll('.council-conversation-container');
+
+        containers.forEach(container => {
+            const modelResponse = container.querySelector('.council-model-response');
+            if (!modelResponse) return;
+
+            const id = modelResponse.id || crypto.randomUUID();
+            const modelId = modelResponse.dataset.modelId || '';
+            const modelName = modelResponse.dataset.modelName || 'Unknown';
+            const userPrompt = modelResponse.dataset.userPrompt || container.querySelector('.council-user-query-text')?.textContent || '';
+            const markdownEl = modelResponse.querySelector('.council-markdown');
+            const content = markdownEl?.getAttribute('data-raw-content') || markdownEl?.textContent || '';
+
+            messages.push({
+                id,
+                modelId,
+                modelName,
+                userPrompt,
+                content,
+                selected: true
+            });
+        });
+
+        return messages;
     }
 
     private startObserving() {
@@ -116,32 +162,33 @@ class CouncilManager {
     private attachInputListeners() {
         if (!this.inputElement) return;
 
-        // Remove old listeners by cloning (if needed in future)
         this.inputElement.addEventListener("keydown", (e) => {
             if (e.key === "Enter" && !e.shiftKey) {
                 if (this.selector.isExternalModel()) {
                     e.preventDefault();
                     e.stopImmediatePropagation();
                     this.triggerCouncil();
+                } else {
+                    this.injectContextToInput();
                 }
             }
-        }, true); // Capture phase
+        }, true);
     }
 
     private attachSendListener() {
         if (!this.sendButton) return;
 
-        // Intercept click on send button
         this.sendButton.addEventListener("click", (e) => {
             if (this.selector.isExternalModel()) {
                 e.preventDefault();
                 e.stopImmediatePropagation();
                 e.stopPropagation();
                 this.triggerCouncil();
+            } else {
+                this.injectContextToInput();
             }
-        }, true); // Capture phase
+        }, true);
 
-        // Also intercept mousedown for extra safety
         this.sendButton.addEventListener("mousedown", (e) => {
             if (this.selector.isExternalModel()) {
                 e.preventDefault();
@@ -149,14 +196,105 @@ class CouncilManager {
             }
         }, true);
 
-        // Intercept touch events for mobile
         this.sendButton.addEventListener("touchstart", (e) => {
             if (this.selector.isExternalModel()) {
                 e.preventDefault();
                 e.stopImmediatePropagation();
                 this.triggerCouncil();
+            } else {
+                this.injectContextToInput();
             }
         }, true);
+    }
+
+    private injectContextToInput(): void {
+        if (!this.inputElement) return;
+        if (!this.contextInjector.hasSelectedMessages()) return;
+
+        const contextText = this.contextInjector.getSelectedContextText();
+        if (!contextText) return;
+
+        const currentText = this.getInputText();
+        
+        if (currentText.includes('[Council Context]')) return;
+
+        const newText = contextText + currentText;
+        
+        this.setQuillContent(newText);
+        
+        console.log('Gemini Council: Injected context into input');
+    }
+
+    private setQuillContent(text: string): void {
+        if (!this.inputElement) return;
+
+        const quillEditor = this.inputElement.closest('.ql-container') || 
+                           this.inputElement.querySelector('.ql-editor') ||
+                           this.inputElement;
+
+        const editorEl = quillEditor.classList.contains('ql-editor') 
+            ? quillEditor as HTMLElement 
+            : quillEditor.querySelector('.ql-editor') as HTMLElement;
+
+        if (!editorEl) {
+            this.inputElement.innerText = text;
+            return;
+        }
+
+        const paragraphs = text.split('\n').filter(p => p.trim());
+        editorEl.innerHTML = paragraphs.map(p => `<p>${this.escapeHtml(p)}</p>`).join('');
+
+        editorEl.focus();
+        
+        this.triggerAngularChangeDetection(editorEl);
+        
+        this.placeCaretAtEnd(editorEl);
+    }
+
+    private triggerAngularChangeDetection(el: HTMLElement): void {
+        el.dispatchEvent(new InputEvent('input', { 
+            bubbles: true, 
+            cancelable: true,
+            inputType: 'insertText',
+            data: el.textContent
+        }));
+
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+
+        const keydownEvent = new KeyboardEvent('keydown', { 
+            bubbles: true, 
+            cancelable: true,
+            key: ' ',
+            code: 'Space'
+        });
+        el.dispatchEvent(keydownEvent);
+
+        const keyupEvent = new KeyboardEvent('keyup', { 
+            bubbles: true, 
+            cancelable: true,
+            key: ' ',
+            code: 'Space'
+        });
+        el.dispatchEvent(keyupEvent);
+    }
+
+    private escapeHtml(text: string): string {
+        return text
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;");
+    }
+
+    private placeCaretAtEnd(el: HTMLElement): void {
+        el.focus();
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        range.collapse(false);
+        const sel = window.getSelection();
+        if (sel) {
+            sel.removeAllRanges();
+            sel.addRange(range);
+        }
     }
 
     private getInputText(): string {
