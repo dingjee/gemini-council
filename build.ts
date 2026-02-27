@@ -3,7 +3,8 @@ import { cp, rm } from "fs/promises";
 // Parse command line arguments
 const args = process.argv.slice(2);
 const isFirefox = args.includes("--firefox");
-const outDir = isFirefox ? "./dist_firefox" : "./dist";
+const isChrome = args.includes("--chrome");
+const outDir = isFirefox ? "./dist_firefox" : (isChrome ? "./dist_chrome" : "./dist");
 
 console.log(`Building Gemini Council for ${isFirefox ? "Firefox" : "Chrome"}...`);
 
@@ -37,4 +38,23 @@ if (Bun.env.GITHUB_GIST_API_KEY) {
 // Copy static assets
 await cp("./public", outDir, { recursive: true });
 
-console.log(`Build complete! Load '${outDir}' in ${isFirefox ? "Firefox about:debugging" : "browser"}.`);
+// Browser-specific manifest adjustments
+const manifestPath = `${outDir}/manifest.json`;
+const manifestStr = await Bun.file(manifestPath).text();
+const manifest = JSON.parse(manifestStr);
+
+if (!isFirefox) {
+    // Chrome/Agent specific manifest adjustments
+    if (manifest.background && manifest.background.scripts) {
+        manifest.background.service_worker = manifest.background.scripts[0];
+        delete manifest.background.scripts;
+    }
+
+    if (manifest.browser_specific_settings) {
+        delete manifest.browser_specific_settings;
+    }
+
+    await Bun.write(manifestPath, JSON.stringify(manifest, null, 2));
+}
+
+console.log(`Build complete! Load '${outDir}' in ${isFirefox ? "Firefox about:debugging" : "Chrome extension page or agent testing"}.`);

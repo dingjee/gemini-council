@@ -6,8 +6,10 @@
   "scripts": {
     "build": "bun run build.ts",
     "build:firefox": "bun run build.ts --firefox",
+    "build:chrome": "bun run build.ts --chrome",
     "dev": "bun run --watch build.ts",
     "dev:firefox": "nodemon --watch src --watch public --ext ts,js,json,html,css --exec \"bun run build.ts --firefox\"",
+    "dev:chrome": "nodemon --watch src --watch public --ext ts,js,json,html,css --exec \"bun run build.ts --chrome\"",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint:firefox": "web-ext lint --source-dir ./dist_firefox",
@@ -18,6 +20,7 @@
     "@types/bun": "latest",
     "@types/chrome": "^0.1.36",
     "@types/node": "^25.2.2",
+    "@types/webextension-polyfill": "^0.12.5",
     "jsdom": "^28.0.0",
     "nodemon": "^3.1.11",
     "vitest": "^4.0.18",
@@ -28,6 +31,7 @@
   },
   "dependencies": {
     "dexie": "^4.3.0",
+    "webextension-polyfill": "^0.12.0",
     "zod": "^4.3.6"
   }
 }

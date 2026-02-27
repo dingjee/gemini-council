@@ -4,6 +4,7 @@
 * **Privacy**: API Keys in `browser.storage.local` ONLY. PDFs processed CLIENT-SIDE (Text Extract) only; never upload binary.
 * **TDD**: Strict Red-Green-Refactor. No implementation without a failing test.
 * **Legacy**: Respect `gemini-voyager` core. Extend via composition; avoid modifying `DOMService`.
+* **Cross-Browser & Agent Ready**: Must adapt for Chrome (e.g., utilizing `webextension-polyfill` or valid manifest config) so browser agents can load the unpacked run for automated testing and troubleshooting.
 * **Typing**: No `any`. Use `zod` for API, `unknown`+narrowing for DOM.
 * **Docs**: Log decisions in `docs/ARCH_DECISIONS.md`.
 
@@ -32,9 +33,10 @@
 * **Anti-Patterns**: Hardcoded models (fetch from API), Prompt Leakage in logs, `any` type.
 * **Sync**: GitHub Gist based (Personal Access Token).
 
-## 5. TESTING (Vitest/jsdom)
+## 5. TESTING & AUTOMATION (Vitest/jsdom/Agent)
 * **Mocks**: Stub `global.fetch` (NEVER real net). Mock `chrome.runtime`, `chrome.storage`.
 * **Scope**: Unit test logic; Integration test flows.
+* **Agent E2E Debugging**: Support loading the unpacked extension in Chrome environments. Use stable accessibility selectors (`aria`, `role`) so that browser agents can automatically navigate, test, and troubleshoot the UI.
 
 ## 6. STRUCTURE MAP
 * `src/core/services/OpenRouterService.ts`: API Bridge (Format/Fetch).
