@@ -27,7 +27,9 @@
     "typescript": "^5"
   },
   "dependencies": {
+    "@types/marked": "^6.0.0",
     "dexie": "^4.3.0",
+    "marked": "^17.0.3",
     "zod": "^4.3.6"
   }
 }

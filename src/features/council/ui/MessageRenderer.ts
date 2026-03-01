@@ -1,7 +1,8 @@
 /**
  * MessageRenderer - Renders messages in Gemini's native UI style
- * Enhanced with Markdown support for Tables, Headers, Code Blocks, and Native Styling
+ * Uses the `marked` library for robust, spec-compliant Markdown parsing.
  */
+import { marked, Renderer } from 'marked';
 
 export class MessageRenderer {
     private static styleInjected = false;
@@ -351,13 +352,13 @@ export class MessageRenderer {
             'model-response',
             '.conversation-container'
         ];
-        
+
         for (const sel of selectors) {
             const el = document.querySelector(sel);
             if (el) {
                 let container = el.parentElement;
                 while (container) {
-                    if (container.tagName === 'MAIN' || 
+                    if (container.tagName === 'MAIN' ||
                         container.classList.contains('conversation-container') ||
                         container.getAttribute('role') === 'main') {
                         return container as HTMLElement;
@@ -582,96 +583,57 @@ export class MessageRenderer {
     }
 
     /**
-     * Enhanced Markdown Formatter with Table Support
+     * Markdown Formatter powered by the `marked` library.
+     * Custom renderer preserves council-* CSS class conventions.
      */
-    private static formatMarkdown(text: string): string {
-        const tokens: string[] = [];
-        const protect = (content: string) => {
-            tokens.push(content);
-            return `__TOKEN_${tokens.length - 1}__`;
+    private static markedConfigured = false;
+
+    private static ensureMarkedConfig(): void {
+        if (this.markedConfigured) return;
+
+        const renderer = new Renderer();
+
+        // Tables → council-table-wrapper / council-table
+        renderer.table = ({ header, rows }: { header: { text: string; align: string | null }[]; rows: { text: string; align: string | null }[][] }) => {
+            const thead = header
+                .map(cell => `<th>${cell.text}</th>`)
+                .join('');
+            const tbody = rows
+                .map(row => {
+                    const cells = row.map(cell => `<td>${cell.text}</td>`).join('');
+                    return `<tr>${cells}</tr>`;
+                })
+                .join('');
+            return (
+                `<div class="council-table-wrapper">` +
+                `<table class="council-table">` +
+                `<thead><tr>${thead}</tr></thead>` +
+                `<tbody>${tbody}</tbody>` +
+                `</table></div>\n`
+            );
         };
 
-        let processed = text;
+        // Horizontal rule → council-hr
+        renderer.hr = () => '<hr class="council-hr">\n';
 
-        // 1. Extract Code Blocks
-        processed = processed.replace(/```(\w*)\n([\s\S]*?)```/g, (match, lang, code) => {
-            return protect(`<pre><code class="language-${lang}">${this.escapeHtml(code)}</code></pre>`);
-        });
+        // Code blocks → language-* class (for future highlight.js integration)
+        renderer.code = ({ text, lang }: { text: string; lang?: string }) => {
+            const escapedCode = text
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+            const langClass = lang ? ` class="language-${lang}"` : '';
+            return `<pre><code${langClass}>${escapedCode}</code></pre>\n`;
+        };
 
-        // 2. Extract Tables
-        // Regex for simple Markdown tables
-        const tableRegex = /(\|.*\|\n\|[-:| ]+\|\n(?:\|.*\|\n?)*)/g;
-        processed = processed.replace(tableRegex, (match) => {
-            const rows = match.trim().split('\n');
-            if (rows.length < 2) return match;
+        marked.use({ renderer, gfm: true, async: false });
+        this.markedConfigured = true;
+    }
 
-            let html = '<div class="council-table-wrapper"><table class="council-table"><thead><tr>';
-            const headers = rows[0].split('|').filter((_, i, arr) => i > 0 && i < arr.length - 1);
-            headers.forEach(h => { html += `<th>${this.escapeHtml(h.trim())}</th>`; });
-            html += '</tr></thead><tbody>';
-
-            for (let i = 2; i < rows.length; i++) {
-                const cells = rows[i].split('|').filter((_, i, arr) => i > 0 && i < arr.length - 1);
-                html += '<tr>';
-                cells.forEach(c => {
-                    // Simple inline format for cells
-                    let content = this.escapeHtml(c.trim());
-                    content = content.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-                    content = content.replace(/`([^`]+)`/g, '<code>$1</code>');
-                    html += `<td>${content}</td>`;
-                });
-                html += '</tr>';
-            }
-            html += '</tbody></table></div>';
-            return protect(html);
-        });
-
-        // 3. Escape remaining text
-        processed = this.escapeHtml(processed);
-
-        // 4. Apply Formatting
-
-        // Horizontal Rule
-        processed = processed.replace(/^---$/gm, '<hr class="council-hr">');
-
-        // Headers
-        processed = processed.replace(/^### (.+)$/gm, '<h3>$1</h3>');
-        processed = processed.replace(/^## (.+)$/gm, '<h2>$1</h2>');
-        processed = processed.replace(/^# (.+)$/gm, '<h1>$1</h1>');
-
-        // Bold & Italic
-        processed = processed.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-        processed = processed.replace(/__([^_]+)__/g, '<strong>$1</strong>');
-        processed = processed.replace(/\*([^*]+)\*/g, '<em>$1</em>');
-        processed = processed.replace(/_([^_]+)_/g, '<em>$1</em>');
-
-        // Inline Code
-        processed = processed.replace(/`([^`]+)`/g, '<code>$1</code>');
-
-        // Lists
-        processed = processed.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
-        processed = processed.replace(/^- (.+)$/gm, '<li>$1</li>');
-
-        // Wrap lists (Naive but works for simple blocks)
-        // Note: This logic for lists is tricky with regex only, but sufficient for simple responses
-        processed = processed.replace(/(<li>.*<\/li>(\n|$))+/g, '<ul>$&</ul>');
-
-        // Fix ordered lists wrapping (change ul to ol if it started with a number? hard with simple regex)
-        // Ignoring complicated nested lists for now.
-
-        // Paragraphs
-        processed = processed.replace(/\n\n/g, '</p><p>');
-        processed = `<p>${processed}</p>`;
-
-        // Cleanup
-        processed = processed.replace(/<p><\/p>/g, '');
-        processed = processed.replace(/<p>(<h[1-3]>.*?<\/h[1-3]>)<\/p>/g, '$1');
-        processed = processed.replace(/<p>(<hr.*?>)<\/p>/g, '$1');
-        processed = processed.replace(/<p>(<ul>.*?<\/ul>)<\/p>/g, '$1');
-
-        processed = processed.replace(/%%TOKEN_(\d+)%%/g, (match, id) => tokens[parseInt(id)]);
-
-        return processed;
+    private static formatMarkdown(text: string): string {
+        this.ensureMarkedConfig();
+        // marked.parse is synchronous when async:false is set
+        return marked.parse(text) as string;
     }
 
     private static escapeHtml(text: string): string {
