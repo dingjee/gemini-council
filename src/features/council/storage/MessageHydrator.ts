@@ -22,6 +22,12 @@ const HYDRATION_DELAY_MS = 1500;
 const MAX_ANCHOR_RETRIES = 5;
 const ANCHOR_RETRY_DELAY_MS = 500;
 
+// Maximum retries & delay for waiting for sync to bring Gist data into IndexedDB
+const SYNC_READY_MAX_RETRIES = 6;
+const SYNC_READY_RETRY_DELAY_MS = 2000;
+const SYNC_READY_POLL_INTERVAL_MS = 1000;
+const SYNC_READY_TIMEOUT_MS = 15000;
+
 // ============================================================================
 // MessageHydrator Class
 // ============================================================================
@@ -32,7 +38,10 @@ export class MessageHydrator {
 
     /**
      * Start the hydration process
-     * Should be called when the content script initializes
+     * Should be called when the content script initializes.
+     * 
+     * On a new device, the Gist sync may still be in progress when this runs.
+     * We wait for sync readiness before attempting to read from local storage.
      */
     async hydrate(): Promise<void> {
         if (this.hydrated) {
@@ -43,23 +52,41 @@ export class MessageHydrator {
         // Wait for Gemini's UI to render
         await this.waitForChatContainer();
 
+        // Wait for background sync to finish pulling Gist data into IndexedDB
+        const syncInfo = await this.waitForSyncReady();
+
         console.log("MessageHydrator: Starting hydration...");
 
-        const conversationId = StorageBridge.getConversationId();
-        if (!conversationId) {
-            console.log("MessageHydrator: No conversation ID, skipping hydration");
+        // Attempt to get stored conversation, with retries for sync lag and DOM loading
+        let conversation = null;
+        let lastId = null;
+
+        for (let attempt = 0; attempt < SYNC_READY_MAX_RETRIES; attempt++) {
+            // Re-evaluate ID on each retry - the sidebar element might take a moment to render
+            const conversationId = StorageBridge.getConversationId();
+            lastId = conversationId;
+
+            if (conversationId) {
+                const result = await StorageBridge.getConversation(conversationId);
+
+                if (result.success && result.data) {
+                    conversation = result.data;
+                    console.log(`MessageHydrator: [DIAG] Success on attempt ${attempt + 1} with ID="${conversationId}"`);
+                    break;
+                }
+            }
+
+            if (attempt < SYNC_READY_MAX_RETRIES - 1) {
+                console.log(`MessageHydrator: No conversation found for ID="${conversationId}", retrying (${attempt + 1}/${SYNC_READY_MAX_RETRIES})...`);
+                await this.sleep(SYNC_READY_RETRY_DELAY_MS);
+            }
+        }
+
+        if (!conversation) {
+            console.log(`MessageHydrator: No stored conversation found after retries (Last ID checked: "${lastId}")`);
             return;
         }
 
-        // Get stored conversation
-        const result = await StorageBridge.getConversation(conversationId);
-
-        if (!result.success || !result.data) {
-            console.log("MessageHydrator: No stored conversation found");
-            return;
-        }
-
-        const conversation = result.data;
         console.log(`MessageHydrator: Found ${conversation.messages.length} stored messages`);
 
         // Inject each message
@@ -106,6 +133,50 @@ export class MessageHydrator {
             // Initial delay before first check
             setTimeout(check, HYDRATION_DELAY_MS);
         });
+    }
+
+    /**
+     * Wait for the background sync (Gist pull) to finish.
+     * On a new device, the SyncManager.hydrate() in the background script
+     * pulls data from Gist into IndexedDB. We need to wait for that to complete
+     * before attempting to read from local storage.
+     * 
+     * Returns diagnostic info about sync state.
+     */
+    private async waitForSyncReady(): Promise<{ isLoggedIn: boolean; status: string }> {
+        const startTime = Date.now();
+        let lastInfo = { isLoggedIn: false, status: "unknown" };
+
+        while (Date.now() - startTime < SYNC_READY_TIMEOUT_MS) {
+            try {
+                const status = await StorageBridge.getSyncStatus();
+
+                if (status.success && status.state) {
+                    const syncStatus = status.state.status;
+                    lastInfo = { isLoggedIn: !!status.isLoggedIn, status: syncStatus };
+
+                    // If sync is idle, error, or offline — it's done (or not going to happen)
+                    if (syncStatus !== "syncing") {
+                        console.log(`MessageHydrator: Sync ready (status: ${syncStatus}, loggedIn: ${status.isLoggedIn}, lastSync: ${status.state.lastSyncAt})`);
+                        return lastInfo;
+                    }
+
+                    console.log("MessageHydrator: Waiting for sync to complete...");
+                } else if (!status.isLoggedIn) {
+                    // Not logged in — no sync will happen
+                    console.log("MessageHydrator: Not logged in to sync, proceeding without sync data");
+                    return { isLoggedIn: false, status: "no_auth" };
+                }
+            } catch {
+                // Background script not ready yet, keep waiting
+                console.log("MessageHydrator: Background not ready, retrying...");
+            }
+
+            await this.sleep(SYNC_READY_POLL_INTERVAL_MS);
+        }
+
+        console.warn("MessageHydrator: Sync readiness timeout, proceeding anyway");
+        return lastInfo;
     }
 
     /**
@@ -168,32 +239,50 @@ export class MessageHydrator {
     }
 
     /**
-     * Find the DOM element that matches the anchor
+     * Find the DOM element that matches the anchor.
+     * Uses a three-layer fallback strategy for cross-device reliability:
+     *   1. geminiMessageId — Gemini's native conversation-container ID (instant, most reliable)
+     *   2. stableContentHash — hash of message body text only, excluding UI chrome
+     *   3. precedingMessageSnippet — substring match (last resort)
      */
     private async findAnchorElement(
         container: HTMLElement,
         anchor: MessageAnchor
     ): Promise<Element | null> {
+        // === Layer 1: Gemini's native message ID (most reliable across devices) ===
+        if (anchor.geminiMessageId) {
+            const element = container.querySelector(`#${CSS.escape(anchor.geminiMessageId)}`);
+            if (element) {
+                console.log(`MessageHydrator: Anchor found via geminiMessageId: ${anchor.geminiMessageId}`);
+                return element;
+            }
+        }
+
+        // === Layer 2 & 3: Hash / Snippet matching with retries ===
         let retries = 0;
 
         while (retries < MAX_ANCHOR_RETRIES) {
-            // Get all message-like elements
+            // Use selectors that actually match Gemini's DOM structure
             const elements = container.querySelectorAll(
-                '[role="article"], [data-message], .message-container'
+                '.conversation-container:not(.council-conversation-container), ' +
+                'model-response:not(.council-conversation-container), ' +
+                '[role="article"]:not(.council-conversation-container)'
             );
 
             for (const element of Array.from(elements)) {
-                const content = element.textContent || "";
+                const content = this.extractStableContent(element);
 
-                // Check if content matches the anchor hash
+                // Layer 2: stable content hash
                 const hash = this.hashContent(content);
                 if (hash === anchor.precedingMessageHash) {
+                    console.log("MessageHydrator: Anchor found via stable content hash");
                     return element;
                 }
 
-                // Check if snippet matches
+                // Layer 3: snippet substring match
                 if (anchor.precedingMessageSnippet &&
                     content.includes(anchor.precedingMessageSnippet)) {
+                    console.log("MessageHydrator: Anchor found via snippet match");
                     return element;
                 }
             }
@@ -202,8 +291,44 @@ export class MessageHydrator {
             await this.sleep(ANCHOR_RETRY_DELAY_MS);
         }
 
-        console.warn("MessageHydrator: Could not find anchor element");
+        console.warn("MessageHydrator: Could not find anchor element via any strategy");
         return null;
+    }
+
+    /**
+     * Extract only the stable message body text from an element,
+     * excluding locale-dependent UI chrome (buttons, tooltips, aria-labels, etc.)
+     * Mirrors StorageBridge.extractStableContent for consistent hashing.
+     */
+    private extractStableContent(element: Element): string {
+        // For model responses, extract only the markdown content
+        const markdown = element.querySelector('.markdown');
+        if (markdown) {
+            return markdown.textContent?.trim() || '';
+        }
+
+        // For user queries, extract only the query text lines
+        const queryText = element.querySelector('.query-text');
+        if (queryText) {
+            const lines = queryText.querySelectorAll('.query-text-line');
+            if (lines.length > 0) {
+                return Array.from(lines).map(l => l.textContent?.trim() || '').join('\n');
+            }
+            return queryText.textContent?.trim() || '';
+        }
+
+        // For combined containers, try both parts
+        const parts: string[] = [];
+        const userQ = element.querySelector('user-query-content .query-text');
+        if (userQ) parts.push(userQ.textContent?.trim() || '');
+
+        const modelR = element.querySelector('message-content .markdown');
+        if (modelR) parts.push(modelR.textContent?.trim() || '');
+
+        if (parts.length > 0) return parts.join('\n');
+
+        // Final fallback
+        return element.textContent || '';
     }
 
     /**

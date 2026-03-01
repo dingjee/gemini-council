@@ -239,6 +239,13 @@ async function handleGetConversation(
 
         const conversation = await storage.getConversation(payload.conversationId);
 
+        // [DIAG] Log what we're looking for and what exists
+        const allConversations = await storage.getAllConversations();
+        const storedIds = allConversations.map(c => c.id);
+        console.log(
+            `Gemini Council (BG): [DIAG] GET_CONVERSATION requested="${payload.conversationId}", found=${!!conversation}, all stored IDs=[${storedIds.join(", ")}]`
+        );
+
         sendResponse({ success: true, data: conversation });
     } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : String(error);

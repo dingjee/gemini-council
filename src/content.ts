@@ -46,15 +46,14 @@ class CouncilManager {
     }
 
     /**
-     * Initialize hydration of stored messages
+     * Initialize hydration of stored messages.
+     * The hydrator internally waits for sync readiness before reading from IndexedDB.
      */
     private async initializeHydration(): Promise<void> {
-        await this.sleep(2000);
-
         try {
             await this.hydrator.hydrate();
             console.log("Gemini Council: Hydration complete");
-            
+
             this.updateContextInjector();
         } catch (error) {
             console.warn("Gemini Council: Hydration failed", error);
@@ -215,25 +214,25 @@ class CouncilManager {
         if (!contextText) return;
 
         const currentText = this.getInputText();
-        
+
         if (currentText.includes('[Council Context]')) return;
 
         const newText = contextText + currentText;
-        
+
         this.setQuillContent(newText);
-        
+
         console.log('Gemini Council: Injected context into input');
     }
 
     private setQuillContent(text: string): void {
         if (!this.inputElement) return;
 
-        const quillEditor = this.inputElement.closest('.ql-container') || 
-                           this.inputElement.querySelector('.ql-editor') ||
-                           this.inputElement;
+        const quillEditor = this.inputElement.closest('.ql-container') ||
+            this.inputElement.querySelector('.ql-editor') ||
+            this.inputElement;
 
-        const editorEl = quillEditor.classList.contains('ql-editor') 
-            ? quillEditor as HTMLElement 
+        const editorEl = quillEditor.classList.contains('ql-editor')
+            ? quillEditor as HTMLElement
             : quillEditor.querySelector('.ql-editor') as HTMLElement;
 
         if (!editorEl) {
@@ -245,15 +244,15 @@ class CouncilManager {
         editorEl.innerHTML = paragraphs.map(p => `<p>${this.escapeHtml(p)}</p>`).join('');
 
         editorEl.focus();
-        
+
         this.triggerAngularChangeDetection(editorEl);
-        
+
         this.placeCaretAtEnd(editorEl);
     }
 
     private triggerAngularChangeDetection(el: HTMLElement): void {
-        el.dispatchEvent(new InputEvent('input', { 
-            bubbles: true, 
+        el.dispatchEvent(new InputEvent('input', {
+            bubbles: true,
             cancelable: true,
             inputType: 'insertText',
             data: el.textContent
@@ -261,16 +260,16 @@ class CouncilManager {
 
         el.dispatchEvent(new Event('change', { bubbles: true }));
 
-        const keydownEvent = new KeyboardEvent('keydown', { 
-            bubbles: true, 
+        const keydownEvent = new KeyboardEvent('keydown', {
+            bubbles: true,
             cancelable: true,
             key: ' ',
             code: 'Space'
         });
         el.dispatchEvent(keydownEvent);
 
-        const keyupEvent = new KeyboardEvent('keyup', { 
-            bubbles: true, 
+        const keyupEvent = new KeyboardEvent('keyup', {
+            bubbles: true,
             cancelable: true,
             key: ' ',
             code: 'Space'
@@ -349,13 +348,18 @@ class CouncilManager {
     }
 
     /**
-     * Count current messages for position index
+     * Count current native Gemini messages for position index.
+     * Excludes council-injected messages to prevent index drift.
      */
     private getCurrentMessageIndex(): number {
         const chatContainer = MessageRenderer.findChatContainer();
         if (!chatContainer) return 0;
 
-        return chatContainer.children.length;
+        // Only count native Gemini conversation containers, not our injected ones
+        const nativeMessages = chatContainer.querySelectorAll(
+            '.conversation-container:not(.council-conversation-container):not(.council-hydrated-group)'
+        );
+        return nativeMessages.length;
     }
 
     private async triggerCouncil() {

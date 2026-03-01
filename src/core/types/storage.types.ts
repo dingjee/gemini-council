@@ -38,7 +38,10 @@ export type ExternalMessage = z.infer<typeof ExternalMessageSchema>;
 
 /**
  * Represents the anchor point for re-injecting messages after page refresh.
- * Uses content hashing to locate the correct position in the DOM.
+ * Uses a three-layer fallback strategy for cross-device reliability:
+ *   1. geminiMessageId — Gemini's native server-generated container ID (most reliable)
+ *   2. precedingMessageHash — DJB2 hash of stable message body text (excludes UI chrome)
+ *   3. positionIndex — child index within the chat container (last resort)
  */
 export const MessageAnchorSchema = z.object({
     /** Hash of the preceding Gemini message content (for positioning) */
@@ -47,6 +50,8 @@ export const MessageAnchorSchema = z.object({
     positionIndex: z.number(),
     /** A snippet of the preceding message for verification */
     precedingMessageSnippet: z.string().max(200),
+    /** Gemini's native conversation-container ID — stable across devices (primary anchor) */
+    geminiMessageId: z.string().optional(),
 });
 
 export type MessageAnchor = z.infer<typeof MessageAnchorSchema>;

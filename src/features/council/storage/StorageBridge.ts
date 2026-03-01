@@ -42,19 +42,38 @@ export class StorageBridge {
      * Extract conversation ID from the current URL
      */
     static getConversationId(): string | null {
+        // First priority: Read from the active sidebar item.
+        // Google sometimes redirects to a short Base62 URL (e.g. /app/ldybj7),
+        // but preserves the original 16-char hex ID in the sidebar href.
+        // We MUST use the original ID to match our stored Gist data.
+        const activeSidebarItem = document.querySelector('a.conversation.selected[aria-current="true"]');
+        if (activeSidebarItem) {
+            const href = activeSidebarItem.getAttribute('href');
+            if (href) {
+                const match = href.match(/\/app\/([a-zA-Z0-9_-]+)/);
+                if (match && match[1]) {
+                    console.log(`StorageBridge: Got conversation ID "${match[1]}" from sidebar`);
+                    return match[1];
+                }
+            }
+        }
+
         const url = window.location.href;
 
         // Pattern: https://gemini.google.com/app/{conversation_id}
         const match = url.match(/gemini\.google\.com\/app\/([a-zA-Z0-9_-]+)/);
 
         if (match && match[1]) {
+            console.log(`StorageBridge: Got conversation ID "${match[1]}" from URL`);
             return match[1];
         }
 
         // Fallback: use a hash of the URL path
         const path = new URL(url).pathname;
         if (path && path !== "/") {
-            return hashMessageContent(path);
+            const hashId = hashMessageContent(path);
+            console.log(`StorageBridge: Got conversation ID "${hashId}" from path hash`);
+            return hashId;
         }
 
         return null;
@@ -80,7 +99,11 @@ export class StorageBridge {
 
     /**
      * Create an anchor from the current DOM state
-     * The anchor helps re-position injected messages after page refresh
+     * The anchor helps re-position injected messages after page refresh.
+     * Uses a three-layer strategy for cross-device reliability:
+     *   1. geminiMessageId — Gemini's native conversation-container ID
+     *   2. precedingMessageHash — hash of stable body text only (no UI chrome)
+     *   3. positionIndex — child index fallback
      */
     static createAnchor(precedingElement: Element | null, positionIndex: number): MessageAnchor {
         if (!precedingElement) {
@@ -88,17 +111,59 @@ export class StorageBridge {
                 precedingMessageHash: "",
                 positionIndex,
                 precedingMessageSnippet: "",
+                geminiMessageId: "",
             };
         }
 
-        const content = precedingElement.textContent || "";
+        const content = StorageBridge.extractStableContent(precedingElement);
         const snippet = content.slice(0, 200).trim();
+
+        // Extract Gemini's native conversation-container ID (server-generated, cross-device stable)
+        const container = precedingElement.closest('.conversation-container');
+        const geminiMessageId = container?.id || precedingElement.id || "";
 
         return {
             precedingMessageHash: hashMessageContent(content),
             positionIndex,
             precedingMessageSnippet: snippet,
+            geminiMessageId,
         };
+    }
+
+    /**
+     * Extract only the stable message body text from a DOM element,
+     * excluding locale-dependent UI chrome (buttons, aria-labels, tooltips, etc.)
+     * This ensures consistent hashing across devices with different languages/locales.
+     */
+    static extractStableContent(element: Element): string {
+        // For user queries, extract only the query text lines
+        const queryText = element.querySelector('.query-text');
+        if (queryText) {
+            const lines = queryText.querySelectorAll('.query-text-line');
+            if (lines.length > 0) {
+                return Array.from(lines).map(l => l.textContent?.trim() || '').join('\n');
+            }
+            return queryText.textContent?.trim() || '';
+        }
+
+        // For model responses, extract only the markdown content
+        const markdown = element.querySelector('.markdown');
+        if (markdown) {
+            return markdown.textContent?.trim() || '';
+        }
+
+        // For combined conversation-containers, try to extract both parts
+        const parts: string[] = [];
+        const userQ = element.querySelector('user-query-content .query-text');
+        if (userQ) parts.push(userQ.textContent?.trim() || '');
+
+        const modelR = element.querySelector('message-content .markdown');
+        if (modelR) parts.push(modelR.textContent?.trim() || '');
+
+        if (parts.length > 0) return parts.join('\n');
+
+        // Final fallback: raw textContent (may not match across devices)
+        return element.textContent || '';
     }
 
     /**
