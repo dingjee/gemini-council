@@ -21,7 +21,7 @@ export const ExternalMessageSchema = z.object({
     /** Human-readable model name */
     modelName: z.string(),
     /** The user prompt that triggered this response */
-    userPrompt: z.string(),
+    userPrompt: z.string().catch(""),
     /** The model's response content */
     content: z.string(),
     /** Timestamp of creation */

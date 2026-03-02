@@ -212,18 +212,30 @@ export class MessageRenderer {
             }
 
             /* Headers */
-            .council-markdown h1, .council-markdown h2, .council-markdown h3 {
+            .council-markdown h1, .council-markdown h2, .council-markdown h3,
+            .council-markdown h4, .council-markdown h5, .council-markdown h6 {
                 color: var(--gem-sys-color--on-surface, #e8eaed);
                 margin: 24px 0 12px 0;
-                font-weight: 500;
+                font-weight: 600;
                 line-height: 1.3;
             }
             .council-markdown h1:first-child, 
             .council-markdown h2:first-child, 
-            .council-markdown h3:first-child { margin-top: 0; }
+            .council-markdown h3:first-child,
+            .council-markdown h4:first-child,
+            .council-markdown h5:first-child,
+            .council-markdown h6:first-child { margin-top: 0; }
             .council-markdown h1 { font-size: 22px; }
             .council-markdown h2 { font-size: 18px; }
-            .council-markdown h3 { font-size: 16px; font-weight: 600; }
+            .council-markdown h3 { font-size: 16px; }
+            .council-markdown h4 { font-size: 15px; }
+
+            /* Bold Text */
+            .council-markdown strong, 
+            .council-markdown b {
+                font-weight: bold;
+                color: var(--gem-sys-color--on-surface, #e3e3e3);
+            }
 
             /* Horizontal Rule */
             .council-hr {
@@ -347,6 +359,11 @@ export class MessageRenderer {
     }
 
     public static findChatContainer(): HTMLElement | null {
+        // Native Gemini uses infinite-scroller as the parent for conversation-containers
+        const exactContainer = document.querySelector('#chat-history infinite-scroller.chat-history') ||
+            document.querySelector('infinite-scroller.chat-history');
+        if (exactContainer) return exactContainer as HTMLElement;
+
         const selectors = [
             'user-query',
             'model-response',
@@ -358,8 +375,11 @@ export class MessageRenderer {
             if (el) {
                 let container = el.parentElement;
                 while (container) {
+                    // If we found a native conversation container, we want its PARENT
+                    if (container.classList.contains('conversation-container') && container.parentElement) {
+                        return container.parentElement as HTMLElement;
+                    }
                     if (container.tagName === 'MAIN' ||
-                        container.classList.contains('conversation-container') ||
                         container.getAttribute('role') === 'main') {
                         return container as HTMLElement;
                     }
@@ -396,47 +416,50 @@ export class MessageRenderer {
     private static REDO_ICON = `<svg viewBox="0 0 24 24"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>`;
     private static EDIT_ICON = `<svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>`;
 
-    public static createUserMessage(text: string, showActions: boolean = true): HTMLElement {
+    public static createUserMessage(text: string = "", showActions: boolean = true): HTMLElement {
         this.injectStyles();
         const container = document.createElement('div');
         container.className = 'council-conversation-container';
         container.id = `council-msg-${Date.now()}`;
-        container.dataset.userQuery = text;
+        container.dataset.userQuery = text || "";
 
-        const userQuery = document.createElement('div');
-        userQuery.className = 'council-user-query';
+        if (text) {
+            const userQuery = document.createElement('div');
+            userQuery.className = 'council-user-query';
 
-        const bubble = document.createElement('div');
-        bubble.className = 'council-user-bubble';
-        bubble.innerHTML = `<p class="council-user-query-text">${this.escapeHtml(text)}</p>`;
+            const bubble = document.createElement('div');
+            bubble.className = 'council-user-bubble';
+            bubble.innerHTML = `<p class="council-user-query-text">${this.escapeHtml(text)}</p>`;
 
-        userQuery.appendChild(bubble);
+            userQuery.appendChild(bubble);
 
-        if (showActions) {
-            const actions = document.createElement('div');
-            actions.className = 'council-user-query-actions';
+            if (showActions) {
+                const actions = document.createElement('div');
+                actions.className = 'council-user-query-actions';
 
-            const copyBtn = document.createElement('button');
-            copyBtn.className = 'council-user-action-btn';
-            copyBtn.title = 'Copy prompt';
-            copyBtn.setAttribute('aria-label', 'Copy prompt');
-            copyBtn.innerHTML = this.COPY_ICON;
-            copyBtn.addEventListener('click', () => {
-                navigator.clipboard.writeText(text).then(() => {
-                    copyBtn.innerHTML = this.COPY_DONE_ICON;
-                    copyBtn.classList.add('copied');
-                    setTimeout(() => {
-                        copyBtn.innerHTML = this.COPY_ICON;
-                        copyBtn.classList.remove('copied');
-                    }, 2000);
+                const copyBtn = document.createElement('button');
+                copyBtn.className = 'council-user-action-btn';
+                copyBtn.title = 'Copy prompt';
+                copyBtn.setAttribute('aria-label', 'Copy prompt');
+                copyBtn.innerHTML = this.COPY_ICON;
+                copyBtn.addEventListener('click', () => {
+                    navigator.clipboard.writeText(text).then(() => {
+                        copyBtn.innerHTML = this.COPY_DONE_ICON;
+                        copyBtn.classList.add('copied');
+                        setTimeout(() => {
+                            copyBtn.innerHTML = this.COPY_ICON;
+                            copyBtn.classList.remove('copied');
+                        }, 2000);
+                    });
                 });
-            });
 
-            actions.appendChild(copyBtn);
-            userQuery.appendChild(actions);
+                actions.appendChild(copyBtn);
+                userQuery.appendChild(actions);
+            }
+
+            container.appendChild(userQuery);
         }
 
-        container.appendChild(userQuery);
         return container;
     }
 
@@ -637,6 +660,7 @@ export class MessageRenderer {
     }
 
     private static escapeHtml(text: string): string {
+        if (!text) return "";
         return text
             .replace(/&/g, "&amp;")
             .replace(/</g, "&lt;")

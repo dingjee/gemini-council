@@ -197,13 +197,9 @@ export class MessageHydrator {
             ? await this.findAnchorElement(chatContainer, anchor)
             : null;
 
-        const container = document.createElement('div');
-        container.className = 'council-hydrated-group';
-        container.dataset.hydratedMessageId = message.id;
-
         const userMessage = MessageRenderer.createUserMessage(message.userPrompt, true);
         userMessage.classList.add('council-hydrated');
-        container.appendChild(userMessage);
+        userMessage.dataset.hydratedMessageId = message.id;
 
         const modelResponse = MessageRenderer.createModelResponse(
             message.modelId,
@@ -213,13 +209,13 @@ export class MessageHydrator {
         );
         modelResponse.dataset.hydratedMessageId = message.id;
         modelResponse.classList.add('council-hydrated');
-        container.appendChild(modelResponse);
+        userMessage.appendChild(modelResponse);
 
         if (anchorElement) {
             if (anchorElement.nextSibling) {
-                chatContainer.insertBefore(container, anchorElement.nextSibling);
+                chatContainer.insertBefore(userMessage, anchorElement.nextSibling);
             } else {
-                chatContainer.appendChild(container);
+                chatContainer.appendChild(userMessage);
             }
         } else if (anchor && anchor.positionIndex >= 0) {
             const children = Array.from(chatContainer.children);
@@ -227,12 +223,12 @@ export class MessageHydrator {
 
             const insertBeforeElement = children[insertIndex];
             if (insertIndex < children.length && insertBeforeElement) {
-                chatContainer.insertBefore(container, insertBeforeElement);
+                chatContainer.insertBefore(userMessage, insertBeforeElement);
             } else {
-                chatContainer.appendChild(container);
+                chatContainer.appendChild(userMessage);
             }
         } else {
-            chatContainer.appendChild(container);
+            chatContainer.appendChild(userMessage);
         }
 
         console.log(`MessageHydrator: Injected message ${message.id} with user prompt`);

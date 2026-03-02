@@ -18,8 +18,6 @@ bun install
 ### Build the extension
 
 ```bash
-# Build for Chrome/general
-bun run build
 
 # Build for Firefox
 bun run build:firefox
@@ -28,8 +26,6 @@ bun run build:firefox
 ### Watch Mode (Auto-rebuild on file changes)
 
 ```bash
-# Watch mode for Chrome
-bun run dev
 
 # Watch mode for Firefox (outputs to dist_firefox)
 bun run dev:firefox
@@ -66,9 +62,7 @@ The packaged extension will be saved to `web-ext-artifacts/`.
 
 | Script | Description |
 |--------|-------------|
-| `bun run build` | Build extension (Chrome) |
 | `bun run build:firefox` | Build extension for Firefox → `dist_firefox/` |
-| `bun run dev` | Watch mode (Chrome) |
 | `bun run dev:firefox` | Watch mode for Firefox with auto-rebuild |
 | `bun run lint:firefox` | Validate Firefox extension |
 | `bun run pack:firefox` | Package as `.xpi` for distribution |

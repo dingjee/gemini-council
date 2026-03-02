@@ -46,3 +46,9 @@
 * `src/features/council/storage`: Local persistence & Hydration.
 * `src/features/council/parsers`: PDF/Text Extractors.
 * `src/pages/content/council-injector.ts`: Bootstrapper.
+
+## 7. DOM & RENDERER GUIDELINES (Lessons Learned)
+* **UI Isolation**: NEVER reuse native Gemini state-bound classes (e.g., `.conversation-container`) for injected elements, as they may trigger unintended native event listeners. Instead, create isolated wrappers (e.g., `.council-conversation-container`) and mimic layout via CSS flex/grid.
+* **Resilient DOM Anchoring**: When determining insertion points, rely on stable macro-containers (like `infinite-scroller.chat-history`). If iterating upward from a detected element, ensure you identify the true containing *parent* (using `parentElement`), rather than accidentally appending inside a sibling text block. Future iterations should abstract this into a robust `DOMObserverService`.
+* **Storage Backward Compatibility**: Treat all remote payloads (Gist/IndexedDB) as potentially stale. Always use `zod` fallbacks (e.g., `z.string().catch("")`) when introducing new schema fields like `userPrompt` to prevent hydration crashes on legacy saved conversations.
+* **Componentized Rendering**: As the injected UI mirrors complex native features (Thoughts, Carousels, Action Bars), avoid monolithic HTML string assembly. Break `MessageRenderer` into discrete, maintainable factory functions (`renderThoughts()`, `renderActions()`, `renderMarkdown()`) or migrate to lightweight functional components/templates.
