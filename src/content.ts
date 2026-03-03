@@ -67,15 +67,16 @@ class CouncilManager {
     }
 
     private async updateContextInjector(): Promise<void> {
-        const isExternal = this.selector.isExternalModel();
-
-        if (isExternal) {
-            this.contextInjector.hide();
-            return;
-        }
-
         const councilMessages = this.extractCouncilMessagesFromDOM();
-        if (councilMessages.length > 0) {
+        const hasCouncil = councilMessages.length > 0;
+
+        console.log('Gemini Council: updateContextInjector', { hasCouncil, count: councilMessages.length });
+
+        // Always sync the ModelSelector's inline toggle state
+        this.selector.setHasCouncilContent(hasCouncil, councilMessages.length);
+
+        // Show the ContextInjector card (detailed message selection) only for native model
+        if (hasCouncil && !this.selector.isExternalModel()) {
             this.contextInjector.updateMessages(councilMessages);
             this.contextInjector.show();
         } else {
@@ -85,27 +86,44 @@ class CouncilManager {
 
     private extractCouncilMessagesFromDOM(): CouncilMessageItem[] {
         const messages: CouncilMessageItem[] = [];
-        const containers = document.querySelectorAll('.council-conversation-container');
+        const seenIds = new Set<string>();
 
+        // Pattern 1: Real-time responses — .council-model-response is INSIDE .council-conversation-container
+        const containers = document.querySelectorAll('.council-conversation-container');
         containers.forEach(container => {
-            const modelResponse = container.querySelector('.council-model-response');
+            const modelResponse = container.querySelector('.council-model-response') as HTMLElement | null;
             if (!modelResponse) return;
 
             const id = modelResponse.id || crypto.randomUUID();
-            const modelId = modelResponse.dataset.modelId || '';
-            const modelName = modelResponse.dataset.modelName || 'Unknown';
-            const userPrompt = modelResponse.dataset.userPrompt || container.querySelector('.council-user-query-text')?.textContent || '';
+            if (seenIds.has(id)) return;
+            seenIds.add(id);
+
+            const modelId = modelResponse.dataset?.modelId || '';
+            const modelName = modelResponse.dataset?.modelName || 'Unknown';
+            const userPrompt = modelResponse.dataset?.userPrompt || container.querySelector('.council-user-query-text')?.textContent || '';
             const markdownEl = modelResponse.querySelector('.council-markdown');
             const content = markdownEl?.getAttribute('data-raw-content') || markdownEl?.textContent || '';
 
-            messages.push({
-                id,
-                modelId,
-                modelName,
-                userPrompt,
-                content,
-                selected: true
-            });
+            messages.push({ id, modelId, modelName, userPrompt, content, selected: true });
+        });
+
+        // Pattern 2: Hydrated responses — .council-model-response is a SIBLING inside .council-hydrated-group
+        const hydratedGroups = document.querySelectorAll('.council-hydrated-group');
+        hydratedGroups.forEach(group => {
+            const modelResponse = group.querySelector('.council-model-response') as HTMLElement | null;
+            if (!modelResponse) return;
+
+            const id = modelResponse.id || modelResponse.dataset?.hydratedMessageId || crypto.randomUUID();
+            if (seenIds.has(id)) return;
+            seenIds.add(id);
+
+            const modelId = modelResponse.dataset?.modelId || '';
+            const modelName = modelResponse.dataset?.modelName || 'Unknown';
+            const userPrompt = modelResponse.dataset?.userPrompt || group.querySelector('.council-user-query-text')?.textContent || '';
+            const markdownEl = modelResponse.querySelector('.council-markdown');
+            const content = markdownEl?.getAttribute('data-raw-content') || markdownEl?.textContent || '';
+
+            messages.push({ id, modelId, modelName, userPrompt, content, selected: true });
         });
 
         return messages;
@@ -208,6 +226,7 @@ class CouncilManager {
 
     private injectContextToInput(): void {
         if (!this.inputElement) return;
+        if (!this.selector.shouldAttachCouncilContext()) return;
         if (!this.contextInjector.hasSelectedMessages()) return;
 
         const contextText = this.contextInjector.getSelectedContextText();
@@ -368,9 +387,9 @@ class CouncilManager {
 
         const modelId = this.selector.getActiveModel();
         const modelName = this.selector.getActiveModelName();
-        const shouldAttachContext = this.selector.shouldAttachContext();
+        const councilContextAttached = this.selector.shouldAttachCouncilContext();
 
-        console.log("Gemini Council: Triggering query to", modelId, "Context:", shouldAttachContext);
+        console.log("Gemini Council: Triggering query to", modelId, "Council ctx:", councilContextAttached);
 
         // Clear input
         this.clearInput();
@@ -393,7 +412,9 @@ class CouncilManager {
 
         // Prepare prompt with context if needed
         let finalPrompt = text;
-        if (shouldAttachContext) {
+
+        // 1. Attach native Gemini chat history for external models
+        if (this.selector.shouldAttachChatHistory()) {
             const history = DOMContentExtractor.extractChatHistory();
             if (history.length > 0) {
                 const contextText = history.map(turn =>
@@ -401,14 +422,21 @@ class CouncilManager {
                 ).join('\n\n');
 
                 finalPrompt = `Below is the conversation history for context:\n\n${contextText}\n\n[CURRENT USER QUERY]:\n${text}`;
-
-                // Truncate context if way too large to prevent complete failure (e.g. > 100k chars)
-                // OpenRouter models handle large contexts well, but let's be safe
-                if (finalPrompt.length > 200000) {
-                    finalPrompt = finalPrompt.slice(finalPrompt.length - 200000);
-                    finalPrompt = "[Context Truncated]...\n" + finalPrompt;
-                }
             }
+        }
+
+        // 2. Attach other council model responses if checkbox is checked
+        if (this.selector.shouldAttachCouncilContext() && this.contextInjector.hasSelectedMessages()) {
+            const councilText = this.contextInjector.getSelectedContextText();
+            if (councilText) {
+                finalPrompt = councilText + finalPrompt;
+            }
+        }
+
+        // Truncate if way too large
+        if (finalPrompt.length > 200000) {
+            finalPrompt = finalPrompt.slice(finalPrompt.length - 200000);
+            finalPrompt = "[Context Truncated]...\n" + finalPrompt;
         }
 
         // Inject loading state
@@ -428,13 +456,16 @@ class CouncilManager {
                 const responseElement = MessageRenderer.createModelResponse(modelId, modelName, content, text);
                 MessageRenderer.replaceLoading(loadingElement, responseElement);
 
+                // Update context injector so the toggle reflects new council content
+                this.updateContextInjector();
+
                 // Persist to storage (async, don't await)
                 this.persistMessage({
                     modelId,
                     modelName,
                     userPrompt: text,
                     content,
-                    contextAttached: shouldAttachContext,
+                    contextAttached: councilContextAttached,
                 }, anchor);
             } else {
                 const error = response.error || "Unknown error";

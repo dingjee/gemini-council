@@ -72,7 +72,10 @@ export class ModelSelector {
     private contextToggleContainer: HTMLElement | null = null;
     private contextCheckbox: HTMLInputElement | null = null;
     private contextSizeDisplay: HTMLElement | null = null;
+    private contextIconBtn: HTMLButtonElement | null = null;
     private isContextLarge: boolean = false;
+    private hasCouncilContent: boolean = false;
+    private councilMessageCount: number = 0;
 
     private syncIndicator: SyncIndicator | null = null;
 
@@ -142,14 +145,8 @@ export class ModelSelector {
             .council-context-toggle {
                 display: none;
                 align-items: center;
-                gap: 8px;
-                margin-right: 12px;
-                padding: 4px 8px;
-                background: rgba(255, 255, 255, 0.05);
-                border-radius: 4px;
-                font-size: 11px;
-                color: var(--gem-sys-color--on-surface-variant, #9aa0a6);
-                border: 1px solid rgba(255, 255, 255, 0.1);
+                position: relative;
+                margin-right: 4px;
             }
 
             .council-context-toggle.visible {
@@ -157,21 +154,51 @@ export class ModelSelector {
             }
 
             .council-context-checkbox {
-                accent-color: #8ab4f8;
-                width: 14px;
+                display: none;
+            }
+
+            .council-context-icon-btn {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                width: 32px;
+                height: 32px;
+                border-radius: 50%;
+                border: none;
+                background: transparent;
+                color: var(--gem-sys-color--on-surface-variant, #9aa0a6);
+                cursor: pointer;
+                transition: all 0.2s;
+                position: relative;
+            }
+            .council-context-icon-btn:hover {
+                background: rgba(255, 255, 255, 0.08);
+            }
+            .council-context-icon-btn.active {
+                color: #8ab4f8;
+                background: rgba(138, 180, 248, 0.12);
+            }
+            .council-context-icon-btn svg {
+                width: 18px;
+                height: 18px;
+            }
+
+            .council-context-badge {
+                position: absolute;
+                top: 2px;
+                right: 2px;
+                min-width: 14px;
                 height: 14px;
-                cursor: pointer;
-            }
-
-            .council-context-label {
-                cursor: pointer;
-                white-space: nowrap;
-            }
-
-            .council-context-size {
-                font-size: 10px;
-                opacity: 0.7;
-                margin-left: 4px;
+                background: #8ab4f8;
+                color: #1a1a2e;
+                border-radius: 7px;
+                font-size: 9px;
+                font-weight: 600;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 0 3px;
+                line-height: 1;
             }
 
             .council-dropdown {
@@ -377,12 +404,12 @@ export class ModelSelector {
     private extractNativeModels(picker: HTMLElement): ModelOption[] {
         const models: ModelOption[] = [];
         const seenTexts = new Set<string>();
-        
+
         const selectors = [
             '.mat-mdc-menu-item',
             'button[role="menuitemradio"]',
             'button[role="option"]',
-            '[role="option"] button', 
+            '[role="option"] button',
             'li button',
             '[data-value]',
             'mat-option',
@@ -390,14 +417,14 @@ export class ModelSelector {
             '[role="listbox"] button',
             '.model-option'
         ];
-        
+
         for (const selector of selectors) {
             const elements = picker.querySelectorAll(selector);
             elements.forEach((el) => {
                 const modeTitle = el.querySelector('.mode-title');
                 const text = modeTitle ? modeTitle.textContent?.trim() : el.textContent?.trim();
                 const cleanText = text?.split('\n')[0]?.trim();
-                
+
                 if (cleanText && cleanText.length > 0 && cleanText.length < 50 && !seenTexts.has(cleanText) && !cleanText.includes('aria-')) {
                     seenTexts.add(cleanText);
                     models.push({
@@ -416,7 +443,7 @@ export class ModelSelector {
                 const modeTitle = btn.querySelector('.mode-title');
                 const text = modeTitle ? modeTitle.textContent?.trim() : btn.textContent?.trim();
                 const cleanText = text?.split('\n')[0]?.trim();
-                
+
                 if (cleanText && cleanText.length > 0 && cleanText.length < 50 && !seenTexts.has(cleanText) && !cleanText.includes("aria-")) {
                     seenTexts.add(cleanText);
                     models.push({
@@ -447,19 +474,19 @@ export class ModelSelector {
         if (this.nativeModelPicker) {
             const triggerBtn = this.nativeModelPicker.querySelector('button[aria-haspopup="menu"], button[aria-haspopup="listbox"]') as HTMLElement;
             debugLog('Trigger button:', triggerBtn);
-            
+
             if (triggerBtn) {
                 triggerBtn.click();
                 debugLog('Clicked trigger button, waiting for menu...');
-                
+
                 await new Promise(resolve => setTimeout(resolve, 500));
-                
+
                 const overlaySelectors = [
                     '.cdk-overlay-connected-position-bounding-box',
                     '.cdk-overlay-container',
                     '.cdk-overlay-pane'
                 ];
-                
+
                 let overlayContainer: Element | null = null;
                 for (const selector of overlaySelectors) {
                     overlayContainer = document.querySelector(selector);
@@ -468,13 +495,13 @@ export class ModelSelector {
                         break;
                     }
                 }
-                
+
                 debugLog('Overlay container:', overlayContainer);
-                
+
                 if (overlayContainer) {
                     debugLog('Overlay container HTML:', overlayContainer.innerHTML.substring(0, 800));
                 }
-                
+
                 const menuSelectors = [
                     '.mat-mdc-menu-content',
                     '.cdk-overlay-pane .mat-mdc-menu-content',
@@ -482,7 +509,7 @@ export class ModelSelector {
                     '.mat-mdc-menu-panel',
                     '.gds-mode-switch-menu'
                 ];
-                
+
                 let menuContent: Element | null = null;
                 for (const selector of menuSelectors) {
                     menuContent = document.querySelector(selector);
@@ -491,34 +518,34 @@ export class ModelSelector {
                         break;
                     }
                 }
-                
+
                 debugLog('Menu content:', menuContent);
-                
+
                 if (menuContent) {
                     const allButtons = menuContent.querySelectorAll('button.bard-mode-list-button, button[role="menuitemradio"], button');
                     debugLog('All buttons in menu:', allButtons.length);
-                    
+
                     allButtons.forEach((btn, index) => {
                         const modeTitle = btn.querySelector('.mode-title');
                         const modeDesc = btn.querySelector('.mode-desc');
-                        
+
                         let name = '';
                         let desc = 'Native';
-                        
+
                         if (modeTitle) {
                             name = modeTitle.textContent?.trim() || '';
                         }
                         if (modeDesc) {
                             desc = modeDesc.textContent?.trim() || 'Native';
                         }
-                        
+
                         debugLog(`Button ${index}:`, {
                             hasModeTitle: !!modeTitle,
                             name,
                             desc,
                             className: btn.className.substring(0, 50)
                         });
-                        
+
                         if (name && name.length > 0 && name.length < 50) {
                             const modelId = NATIVE_MODEL_ID_PREFIX + this.sanitizeModelId(name);
                             if (!this.nativeGeminiModels.some(m => m.id === modelId)) {
@@ -533,7 +560,7 @@ export class ModelSelector {
                         }
                     });
                 }
-                
+
                 const closeBtn = document.querySelector('.cdk-overlay-backdrop') as HTMLElement;
                 if (closeBtn) {
                     debugLog('Closing menu via backdrop');
@@ -542,7 +569,7 @@ export class ModelSelector {
                     debugLog('Closing menu via trigger button');
                     triggerBtn.click();
                 }
-                
+
                 await new Promise(resolve => setTimeout(resolve, 100));
             }
         }
@@ -581,8 +608,11 @@ export class ModelSelector {
             if (this.injected && this.container && this.container.parentElement !== this.nativeModelPicker.parentElement) {
                 debugLog('Moving selector to beside native picker');
                 this.nativeModelPicker.parentElement.insertBefore(this.container, this.nativeModelPicker.nextSibling);
+            }
+            if (this.injected) {
+                // Always re-hide: Angular may re-render the native picker without our hidden class
                 this.hideNativePicker();
-            } else if (!this.injected) {
+            } else {
                 this.injectBesideNativePicker();
             }
             return;
@@ -607,8 +637,55 @@ export class ModelSelector {
         }
     }
 
+    private createContextToggle() {
+        this.contextToggleContainer = document.createElement("div");
+        this.contextToggleContainer.className = "council-context-toggle";
+
+        // Hidden checkbox for state
+        this.contextCheckbox = document.createElement("input");
+        this.contextCheckbox.type = "checkbox";
+        this.contextCheckbox.className = "council-context-checkbox";
+        this.contextCheckbox.id = "council-ctx-check";
+
+        // Icon button
+        this.contextIconBtn = document.createElement("button");
+        this.contextIconBtn.className = "council-context-icon-btn";
+        this.contextIconBtn.title = "附带 Council 上下文";
+        this.contextIconBtn.type = "button";
+        this.contextIconBtn.innerHTML = `
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+            </svg>
+        `;
+
+        // Badge for message count
+        this.contextSizeDisplay = document.createElement("span");
+        this.contextSizeDisplay.className = "council-context-badge";
+        this.contextSizeDisplay.style.display = "none";
+
+        this.contextIconBtn.appendChild(this.contextSizeDisplay);
+
+        this.contextIconBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            if (this.contextCheckbox) {
+                this.contextCheckbox.checked = !this.contextCheckbox.checked;
+                this.contextIconBtn?.classList.toggle("active", this.contextCheckbox.checked);
+            }
+        });
+
+        this.contextToggleContainer.appendChild(this.contextCheckbox);
+        this.contextToggleContainer.appendChild(this.contextIconBtn);
+    }
+
     private injectBesideNativePicker() {
-        if (this.injected || !this.nativeModelPicker || document.getElementById("gemini-council-selector")) return;
+        if (this.injected || !this.nativeModelPicker) return;
+
+        // Remove stale element from previous extension session (no JS backing)
+        const staleEl = document.getElementById("gemini-council-selector");
+        if (staleEl && staleEl !== this.container) {
+            debugLog('Removing stale council-selector element');
+            staleEl.remove();
+        }
 
         debugLog('injectBesideNativePicker called');
         this.hideNativePicker();
@@ -616,25 +693,7 @@ export class ModelSelector {
         this.container = document.createElement("div");
         this.container.id = "gemini-council-selector";
 
-        this.contextToggleContainer = document.createElement("div");
-        this.contextToggleContainer.className = "council-context-toggle";
-
-        this.contextCheckbox = document.createElement("input");
-        this.contextCheckbox.type = "checkbox";
-        this.contextCheckbox.className = "council-context-checkbox";
-        this.contextCheckbox.id = "council-ctx-check";
-
-        const label = document.createElement("label");
-        label.className = "council-context-label";
-        label.htmlFor = "council-ctx-check";
-        label.innerText = "Attach Full Context";
-
-        this.contextSizeDisplay = document.createElement("span");
-        this.contextSizeDisplay.className = "council-context-size";
-
-        this.contextToggleContainer.appendChild(this.contextCheckbox);
-        this.contextToggleContainer.appendChild(label);
-        this.contextToggleContainer.appendChild(this.contextSizeDisplay);
+        this.createContextToggle();
 
         this.syncIndicator = new SyncIndicator();
         this.container.appendChild(this.syncIndicator.getElement());
@@ -642,7 +701,7 @@ export class ModelSelector {
         this.triggerButton = document.createElement("button");
         this.triggerButton.className = "council-trigger";
         this.updateTriggerButton();
-        
+
         this.triggerButton.addEventListener('click', (e) => {
             debugLog('Trigger button clicked!');
             e.stopPropagation();
@@ -653,6 +712,7 @@ export class ModelSelector {
         this.container.appendChild(this.contextToggleContainer);
         this.container.appendChild(this.triggerButton);
 
+        if (!this.nativeModelPicker.parentElement) return;
         this.nativeModelPicker.parentElement.insertBefore(this.container, this.nativeModelPicker.nextSibling);
 
         this.initializeActiveModel();
@@ -668,32 +728,21 @@ export class ModelSelector {
     }
 
     private injectInto(parent: HTMLElement) {
-        if (this.injected || document.getElementById("gemini-council-selector")) return;
+        if (this.injected) return;
+
+        // Remove stale element from previous extension session
+        const staleEl = document.getElementById("gemini-council-selector");
+        if (staleEl && staleEl !== this.container) {
+            debugLog('Removing stale council-selector element');
+            staleEl.remove();
+        }
 
         debugLog('injectInto called, parent:', parent.className);
 
         this.container = document.createElement("div");
         this.container.id = "gemini-council-selector";
 
-        this.contextToggleContainer = document.createElement("div");
-        this.contextToggleContainer.className = "council-context-toggle";
-
-        this.contextCheckbox = document.createElement("input");
-        this.contextCheckbox.type = "checkbox";
-        this.contextCheckbox.className = "council-context-checkbox";
-        this.contextCheckbox.id = "council-ctx-check";
-
-        const label = document.createElement("label");
-        label.className = "council-context-label";
-        label.htmlFor = "council-ctx-check";
-        label.innerText = "Attach Full Context";
-
-        this.contextSizeDisplay = document.createElement("span");
-        this.contextSizeDisplay.className = "council-context-size";
-
-        this.contextToggleContainer.appendChild(this.contextCheckbox);
-        this.contextToggleContainer.appendChild(label);
-        this.contextToggleContainer.appendChild(this.contextSizeDisplay);
+        this.createContextToggle();
 
         this.syncIndicator = new SyncIndicator();
         this.container.appendChild(this.syncIndicator.getElement());
@@ -701,7 +750,7 @@ export class ModelSelector {
         this.triggerButton = document.createElement("button");
         this.triggerButton.className = "council-trigger";
         this.updateTriggerButton();
-        
+
         this.triggerButton.addEventListener('click', (e) => {
             debugLog('Trigger button clicked!');
             e.stopPropagation();
@@ -787,7 +836,7 @@ export class ModelSelector {
 
     private initializeActiveModel() {
         if (this.activeModel) return;
-        
+
         if (this.lastNativeModelText) {
             this.activeModel = {
                 id: NATIVE_MODEL_ID_PREFIX + this.sanitizeModelId(this.lastNativeModelText),
@@ -808,7 +857,7 @@ export class ModelSelector {
                 this.lastNativeModelText = modelText;
             }
         }
-        
+
         this.updateTriggerButton();
     }
 
@@ -827,10 +876,12 @@ export class ModelSelector {
         `;
 
         if (this.contextToggleContainer) {
-            if (!this.isExternalModel() || !this.isContextLarge) {
-                this.contextToggleContainer.classList.remove("visible");
-            } else {
+            // Show the context toggle whenever council content exists, regardless of active model
+            debugLog('Context toggle:', { hasCouncilContent: this.hasCouncilContent });
+            if (this.hasCouncilContent) {
                 this.contextToggleContainer.classList.add("visible");
+            } else {
+                this.contextToggleContainer.classList.remove("visible");
             }
         }
     }
@@ -856,21 +907,21 @@ export class ModelSelector {
     private async openDropdown() {
         debugLog('openDropdown called');
         this.hideNativePicker();
-        
+
         if (this.dropdown) {
             this.dropdown.remove();
         }
-        
+
         debugLog('Calling fetchNativeModels...');
         await this.fetchNativeModels();
         debugLog('fetchNativeModels completed');
-        
+
         this.dropdown = this.createDropdown();
         this.dropdown.style.visibility = 'hidden';
         document.body.appendChild(this.dropdown);
-        
+
         this.positionDropdown();
-        
+
         this.isOpen = true;
         this.dropdown.style.visibility = 'visible';
         this.dropdown.classList.add("open");
@@ -883,11 +934,11 @@ export class ModelSelector {
         const triggerRect = this.triggerButton.getBoundingClientRect();
         const viewportHeight = window.innerHeight;
         const dropdownHeight = this.dropdown.offsetHeight;
-        
+
         let top: number;
         const spaceAbove = triggerRect.top;
         const spaceBelow = viewportHeight - triggerRect.bottom;
-        
+
         if (spaceAbove >= dropdownHeight + 16 || spaceAbove > spaceBelow) {
             top = triggerRect.top - dropdownHeight - 8;
             if (top < 10) {
@@ -901,14 +952,14 @@ export class ModelSelector {
         if (left < 10) {
             left = 10;
         }
-        
+
         if (left + this.dropdown.offsetWidth > window.innerWidth - 10) {
             left = window.innerWidth - this.dropdown.offsetWidth - 10;
         }
 
         this.dropdown.style.top = `${top}px`;
         this.dropdown.style.left = `${left}px`;
-        
+
         const maxVisibleHeight = viewportHeight - top - 16;
         if (dropdownHeight > maxVisibleHeight) {
             this.dropdown.style.maxHeight = `${Math.max(200, maxVisibleHeight)}px`;
@@ -940,13 +991,13 @@ export class ModelSelector {
     private selectModel(group: ModelGroup, model: ModelOption) {
         this.activeModel = model;
         this.closeDropdown();
-        this.updateTriggerButton();
 
         if (model.isNative) {
             this.triggerNativeModelSelection(model.name);
-        } else {
-            this.onModelChange(model.id);
         }
+
+        // Always notify content.ts on model change (native or external)
+        this.onModelChange(model.id);
     }
 
     private triggerNativeModelSelection(modelName: string): void {
@@ -958,7 +1009,7 @@ export class ModelSelector {
             const triggerBtn = this.nativeModelPicker.querySelector('button[aria-haspopup="listbox"]') as HTMLElement;
             if (triggerBtn) {
                 triggerBtn.click();
-                
+
                 setTimeout(() => {
                     const options = this.nativeModelPicker!.querySelectorAll('button[role="option"], li button, [data-value]');
                     for (const opt of options) {
@@ -997,9 +1048,29 @@ export class ModelSelector {
         this.updateTriggerButton();
     }
 
-    public shouldAttachContext(): boolean {
-        if (!this.isContextLarge) return true;
+    public setHasCouncilContent(has: boolean, count: number = 0) {
+        this.hasCouncilContent = has;
+        this.councilMessageCount = count;
+        if (this.contextSizeDisplay) {
+            if (count > 0) {
+                this.contextSizeDisplay.textContent = String(count);
+                this.contextSizeDisplay.style.display = "flex";
+            } else {
+                this.contextSizeDisplay.style.display = "none";
+            }
+        }
+        this.updateTriggerButton();
+    }
+
+    public shouldAttachCouncilContext(): boolean {
         return this.contextCheckbox?.checked || false;
+    }
+
+    /** Whether to attach native Gemini chat history to external model queries */
+    public shouldAttachChatHistory(): boolean {
+        if (!this.isContextLarge) return true;
+        // For large contexts, could add a separate control later; for now always true
+        return true;
     }
 
     public destroy() {

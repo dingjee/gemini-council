@@ -1,13 +1,10 @@
 /**
- * ContextInjector - UI component for injecting Council context into Gemini
+ * ContextInjector - Floating popover for injecting Council context into Gemini
  * 
- * When switching back to Gemini native models, this component:
- * 1. Displays a collapsible card showing Council messages
- * 2. Allows users to select/deselect which messages to include
- * 3. Injects selected context into the input when sending
+ * Appears as a compact floating card above the input area (right side),
+ * similar to Gemini's native attachment previews.
+ * Allows users to select/deselect which Council messages to include as context.
  */
-
-import { MessageRenderer } from "./MessageRenderer";
 
 export interface CouncilMessageItem {
     id: string;
@@ -25,7 +22,7 @@ export class ContextInjector {
     private static instance: ContextInjector | null = null;
     private static STYLE_ID = "council-context-injector-styles";
 
-    private constructor() {}
+    private constructor() { }
 
     static getInstance(): ContextInjector {
         if (!ContextInjector.instance) {
@@ -75,7 +72,9 @@ export class ContextInjector {
             this.createContainer();
         }
         this.render();
-        this.container!.style.display = "block";
+        if (this.container) {
+            this.container.style.display = "block";
+        }
     }
 
     hide(): void {
@@ -95,8 +94,8 @@ export class ContextInjector {
         if (selected.length === 0) return "";
 
         const parts = selected.map(m => {
-            const contentPreview = m.content.length > 500 
-                ? m.content.substring(0, 500) + "..." 
+            const contentPreview = m.content.length > 500
+                ? m.content.substring(0, 500) + "..."
                 : m.content;
             return `### ${m.modelName}\n**User:** ${m.userPrompt}\n**Response:**\n${contentPreview}`;
         });
@@ -107,38 +106,22 @@ export class ContextInjector {
     private createContainer(): void {
         this.container = document.createElement("div");
         this.container.id = "council-context-injector";
-        
-        const inputArea = this.findInputArea();
-        if (inputArea && inputArea.parentElement) {
-            inputArea.parentElement.insertBefore(this.container, inputArea);
+
+        // Insert inside the input-area's text-input-field, above the text area
+        // This mimics how Gemini's attachment previews appear above the text input
+        const textInputField = document.querySelector('.text-input-field');
+        if (textInputField) {
+            // Insert at the very beginning of text-input-field
+            textInputField.insertBefore(this.container, textInputField.firstChild);
         } else {
-            document.body.appendChild(this.container);
-        }
-    }
-
-    private findInputArea(): HTMLElement | null {
-        const selectors = [
-            "div[contenteditable=\"true\"][role=\"textbox\"]",
-            ".input-area",
-            ".compose-area", 
-            "[data-compose-area]",
-            ".send-button-container"
-        ];
-
-        for (const sel of selectors) {
-            const el = document.querySelector(sel);
-            if (el) {
-                const textBox = sel.includes("textbox") ? el : el.querySelector('div[contenteditable="true"]');
-                if (textBox) {
-                    const parent = textBox.closest('.input-area, .compose-area, [data-compose-area]');
-                    if (parent) return parent as HTMLElement;
-                    return textBox.parentElement as HTMLElement;
-                }
-                return el as HTMLElement;
+            // Fallback: find input area and insert before it
+            const inputArea = document.querySelector('[data-node-type="input-area"]');
+            if (inputArea) {
+                inputArea.insertBefore(this.container, inputArea.firstChild);
+            } else {
+                document.body.appendChild(this.container);
             }
         }
-
-        return null;
     }
 
     private render(): void {
@@ -148,17 +131,25 @@ export class ContextInjector {
         const totalCount = this.messages.length;
 
         this.container.innerHTML = `
-            <div class="council-context-header" data-action="toggle">
-                <span class="council-context-icon">📋</span>
-                <span class="council-context-title">Council 上下文 (${selectedCount}/${totalCount})</span>
-                <span class="council-context-toggle">${this.collapsed ? "▶" : "▼"}</span>
-            </div>
-            <div class="council-context-body ${this.collapsed ? "collapsed" : ""}">
-                <div class="council-context-actions">
-                    <button class="council-context-btn" data-action="select-all">全选</button>
-                    <button class="council-context-btn" data-action="deselect-all">全不选</button>
+            <div class="council-ctx-header" data-action="toggle">
+                <div class="council-ctx-header-left">
+                    <svg class="council-ctx-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+                    </svg>
+                    <span class="council-ctx-title">Council (${selectedCount}/${totalCount})</span>
                 </div>
-                <div class="council-context-messages">
+                <div class="council-ctx-header-right">
+                    <button class="council-ctx-action-btn" data-action="select-all" title="Select all">
+                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M18 7l-1.41-1.41-6.34 6.34 1.41 1.41L18 7zm4.24-1.41L11.66 16.17 7.48 12l-1.41 1.41L11.66 19l12-12-1.42-1.41zM.41 13.41L6 19l1.41-1.41L1.83 12 .41 13.41z"/></svg>
+                    </button>
+                    <button class="council-ctx-action-btn" data-action="deselect-all" title="Deselect all">
+                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+                    </button>
+                    <span class="council-ctx-collapse">${this.collapsed ? "\u25B6" : "\u25BC"}</span>
+                </div>
+            </div>
+            <div class="council-ctx-body ${this.collapsed ? "collapsed" : ""}">
+                <div class="council-ctx-messages">
                     ${this.messages.map(m => this.renderMessageItem(m)).join("")}
                 </div>
             </div>
@@ -168,20 +159,21 @@ export class ContextInjector {
     }
 
     private renderMessageItem(msg: CouncilMessageItem): string {
-        const contentPreview = msg.content.length > 150 
-            ? msg.content.substring(0, 150).replace(/\n/g, " ") + "..." 
+        const contentPreview = msg.content.length > 60
+            ? msg.content.substring(0, 60).replace(/\n/g, " ") + "..."
             : msg.content.replace(/\n/g, " ");
+        const promptPreview = msg.userPrompt.length > 30
+            ? msg.userPrompt.substring(0, 30) + "..."
+            : msg.userPrompt;
 
         return `
-            <div class="council-context-item ${msg.selected ? "selected" : ""}" data-id="${msg.id}">
-                <input type="checkbox" class="council-context-checkbox" 
+            <div class="council-ctx-item ${msg.selected ? "selected" : ""}" data-id="${msg.id}">
+                <input type="checkbox" class="council-ctx-check" 
                        ${msg.selected ? "checked" : ""} data-id="${msg.id}">
-                <div class="council-context-item-content">
-                    <div class="council-context-item-header">
-                        <span class="council-context-model-badge">${this.getModelShortName(msg.modelName)}</span>
-                        <span class="council-context-prompt">${this.escapeHtml(msg.userPrompt.substring(0, 50))}${msg.userPrompt.length > 50 ? "..." : ""}</span>
-                    </div>
-                    <div class="council-context-preview">${this.escapeHtml(contentPreview)}</div>
+                <span class="council-ctx-badge">${this.getModelShortName(msg.modelName)}</span>
+                <div class="council-ctx-text">
+                    <span class="council-ctx-prompt">${this.escapeHtml(promptPreview)}</span>
+                    <span class="council-ctx-preview">${this.escapeHtml(contentPreview)}</span>
                 </div>
             </div>
         `;
@@ -189,7 +181,8 @@ export class ContextInjector {
 
     private getModelShortName(name: string): string {
         const parts = name.split("/");
-        return parts.length > 1 ? parts[parts.length - 1].substring(0, 12) : name.substring(0, 12);
+        const last = parts[parts.length - 1] ?? name;
+        return parts.length > 1 ? last.substring(0, 12) : name.substring(0, 12);
     }
 
     private escapeHtml(text: string): string {
@@ -205,6 +198,7 @@ export class ContextInjector {
 
         this.container.querySelectorAll("[data-action]").forEach(el => {
             el.addEventListener("click", (e) => {
+                e.stopPropagation();
                 const action = (e.currentTarget as HTMLElement).dataset.action;
                 switch (action) {
                     case "toggle":
@@ -220,14 +214,14 @@ export class ContextInjector {
             });
         });
 
-        this.container.querySelectorAll(".council-context-checkbox").forEach(el => {
+        this.container.querySelectorAll(".council-ctx-check").forEach(el => {
             el.addEventListener("change", (e) => {
                 const id = (e.target as HTMLInputElement).dataset.id;
                 if (id) this.toggleMessage(id);
             });
         });
 
-        this.container.querySelectorAll(".council-context-item").forEach(el => {
+        this.container.querySelectorAll(".council-ctx-item").forEach(el => {
             el.addEventListener("click", (e) => {
                 if ((e.target as HTMLElement).tagName !== "INPUT") {
                     const id = (e.currentTarget as HTMLElement).dataset.id;
@@ -245,150 +239,166 @@ export class ContextInjector {
         style.textContent = `
             #council-context-injector {
                 font-family: 'Google Sans', 'Helvetica Neue', sans-serif;
-                margin: 8px 16px;
+                margin: 0 4px 4px 4px;
                 border-radius: 12px;
-                background: var(--gem-sys-color--surface-container, #1e1e1e);
+                background: var(--gem-sys-color--surface-container-high, #252525);
                 border: 1px solid var(--gem-sys-color--outline-variant, rgba(255,255,255,0.1));
                 overflow: hidden;
-                font-size: 13px;
+                font-size: 11px;
+                width: 100%;
+                box-sizing: border-box;
             }
 
-            .council-context-header {
+            .council-ctx-header {
                 display: flex;
                 align-items: center;
-                padding: 10px 14px;
-                cursor: pointer;
-                background: var(--gem-sys-color--surface-container-high, #252525);
-                transition: background 0.2s;
-            }
-
-            .council-context-header:hover {
-                background: var(--gem-sys-color--surface-container-highest, #2d2d2d);
-            }
-
-            .council-context-icon {
-                margin-right: 8px;
-                font-size: 14px;
-            }
-
-            .council-context-title {
-                flex: 1;
-                font-weight: 500;
-                color: var(--gem-sys-color--on-surface, #e3e3e3);
-            }
-
-            .council-context-toggle {
-                color: var(--gem-sys-color--on-surface-variant, #9aa0a6);
-                font-size: 10px;
-            }
-
-            .council-context-body {
-                max-height: 300px;
-                overflow-y: auto;
-                transition: max-height 0.3s ease;
-            }
-
-            .council-context-body.collapsed {
-                max-height: 0;
-            }
-
-            .council-context-actions {
-                display: flex;
-                gap: 8px;
-                padding: 8px 14px;
-                border-bottom: 1px solid var(--gem-sys-color--outline-variant, rgba(255,255,255,0.05));
-            }
-
-            .council-context-btn {
-                background: transparent;
-                border: 1px solid var(--gem-sys-color--outline, rgba(255,255,255,0.2));
-                color: var(--gem-sys-color--on-surface-variant, #9aa0a6);
-                padding: 4px 10px;
-                border-radius: 6px;
-                cursor: pointer;
-                font-size: 11px;
-                transition: all 0.2s;
-            }
-
-            .council-context-btn:hover {
-                background: var(--gem-sys-color--surface-container-highest, #2d2d2d);
-                color: var(--gem-sys-color--on-surface, #e3e3e3);
-            }
-
-            .council-context-messages {
-                padding: 8px;
-            }
-
-            .council-context-item {
-                display: flex;
-                align-items: flex-start;
-                padding: 10px;
-                border-radius: 8px;
+                justify-content: space-between;
+                padding: 5px 8px;
                 cursor: pointer;
                 transition: background 0.2s;
-                margin-bottom: 4px;
+                gap: 4px;
             }
 
-            .council-context-item:last-child {
-                margin-bottom: 0;
+            .council-ctx-header:hover {
+                background: rgba(255, 255, 255, 0.04);
             }
 
-            .council-context-item:hover {
-                background: var(--gem-sys-color--surface-container-high, #252525);
-            }
-
-            .council-context-item.selected {
-                background: rgba(102, 126, 234, 0.1);
-                border: 1px solid rgba(102, 126, 234, 0.3);
-            }
-
-            .council-context-checkbox {
-                margin-right: 10px;
-                margin-top: 2px;
-                accent-color: #667eea;
-                width: 14px;
-                height: 14px;
-                cursor: pointer;
-            }
-
-            .council-context-item-content {
-                flex: 1;
+            .council-ctx-header-left {
+                display: flex;
+                align-items: center;
+                gap: 6px;
                 min-width: 0;
             }
 
-            .council-context-item-header {
+            .council-ctx-icon {
+                width: 14px;
+                height: 14px;
+                flex-shrink: 0;
+                opacity: 0.7;
+            }
+
+            .council-ctx-title {
+                font-weight: 500;
+                font-size: 11px;
+                color: var(--gem-sys-color--on-surface, #e3e3e3);
+                white-space: nowrap;
+            }
+
+            .council-ctx-header-right {
                 display: flex;
                 align-items: center;
-                gap: 8px;
-                margin-bottom: 4px;
+                gap: 2px;
+                flex-shrink: 0;
             }
 
-            .council-context-model-badge {
+            .council-ctx-action-btn {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                width: 22px;
+                height: 22px;
+                border: none;
+                background: transparent;
+                color: var(--gem-sys-color--on-surface-variant, #9aa0a6);
+                cursor: pointer;
+                border-radius: 4px;
+                padding: 3px;
+                transition: all 0.15s;
+            }
+            .council-ctx-action-btn:hover {
+                background: rgba(255,255,255,0.08);
+                color: var(--gem-sys-color--on-surface, #e3e3e3);
+            }
+            .council-ctx-action-btn svg {
+                width: 14px;
+                height: 14px;
+            }
+
+            .council-ctx-collapse {
+                color: var(--gem-sys-color--on-surface-variant, #9aa0a6);
+                font-size: 8px;
+                margin-left: 2px;
+            }
+
+            .council-ctx-body {
+                max-height: 150px;
+                overflow-y: auto;
+                transition: max-height 0.25s ease;
+            }
+            .council-ctx-body.collapsed {
+                max-height: 0;
+                overflow: hidden;
+            }
+
+            .council-ctx-messages {
+                display: flex;
+                flex-direction: column;
+                gap: 2px;
+                padding: 4px;
+            }
+
+            .council-ctx-item {
+                display: flex;
+                align-items: center;
+                padding: 4px 6px;
+                border-radius: 8px;
+                cursor: pointer;
+                transition: background 0.15s;
+                gap: 6px;
+                border: 1px solid transparent;
+            }
+            .council-ctx-item:hover {
+                background: rgba(255, 255, 255, 0.04);
+            }
+            .council-ctx-item.selected {
+                background: rgba(102, 126, 234, 0.08);
+                border-color: rgba(102, 126, 234, 0.2);
+            }
+
+            .council-ctx-check {
+                margin: 0;
+                accent-color: #667eea;
+                width: 12px;
+                height: 12px;
+                cursor: pointer;
+                flex-shrink: 0;
+            }
+
+            .council-ctx-badge {
                 background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
                 color: white;
-                padding: 2px 6px;
+                padding: 1px 5px;
                 border-radius: 4px;
-                font-size: 10px;
-                font-weight: 500;
+                font-size: 9px;
+                font-weight: 600;
+                white-space: nowrap;
+                flex-shrink: 0;
             }
 
-            .council-context-prompt {
+            .council-ctx-text {
+                flex: 1;
+                min-width: 0;
+                display: flex;
+                flex-direction: column;
+                gap: 1px;
+            }
+
+            .council-ctx-prompt {
                 color: var(--gem-sys-color--on-surface, #e3e3e3);
-                font-size: 12px;
+                font-size: 10px;
                 font-weight: 500;
                 overflow: hidden;
                 text-overflow: ellipsis;
                 white-space: nowrap;
             }
 
-            .council-context-preview {
+            .council-ctx-preview {
                 color: var(--gem-sys-color--on-surface-variant, #9aa0a6);
-                font-size: 11px;
-                line-height: 1.4;
+                font-size: 9px;
+                line-height: 1.2;
                 overflow: hidden;
-                display: -webkit-box;
-                -webkit-line-clamp: 2;
-                -webkit-box-orient: vertical;
+                text-overflow: ellipsis;
+                white-space: nowrap;
             }
         `;
 

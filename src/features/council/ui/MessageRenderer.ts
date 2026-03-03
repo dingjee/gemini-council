@@ -32,9 +32,25 @@ export class MessageRenderer {
                 grid-column: 1 / -1;
             }
 
-            /* Hydrated Group Container - wraps user message + model response */
+            /* Hydrated Group Container - wraps user message + model response.
+             * CRITICAL: Must NOT use display:contents -- it removes the element
+             * from the layout tree, causing children to float freely in the native
+             * infinite-scroller grid and breaking layout. Must mirror the layout
+             * properties of .council-conversation-container to behave as a single
+             * block within the chat scroller. See GEMINI.md section 7. */
             .council-hydrated-group {
-                display: contents;
+                display: flex;
+                flex-direction: column;
+                width: 100%;
+                height: auto;
+                min-height: min-content;
+                flex: 0 0 auto;
+                position: relative;
+                z-index: 1;
+                margin-bottom: 24px;
+                padding-bottom: 24px;
+                box-sizing: border-box;
+                grid-column: 1 / -1;
             }
 
             /* User Query Bubble Wrapper - Native Gemini Style */
@@ -359,41 +375,28 @@ export class MessageRenderer {
     }
 
     public static findChatContainer(): HTMLElement | null {
-        // Native Gemini uses infinite-scroller as the parent for conversation-containers
-        const exactContainer = document.querySelector('#chat-history infinite-scroller.chat-history') ||
+        // STRICT: Only return infinite-scroller.chat-history.
+        // NEVER return <main> or any broader container — that causes
+        // hydrated messages to render outside the chat scroller.
+        const exactContainer =
+            document.querySelector('#chat-history infinite-scroller.chat-history') ||
             document.querySelector('infinite-scroller.chat-history');
         if (exactContainer) return exactContainer as HTMLElement;
 
-        const selectors = [
-            'user-query',
-            'model-response',
-            '.conversation-container'
-        ];
-
-        for (const sel of selectors) {
-            const el = document.querySelector(sel);
-            if (el) {
-                let container = el.parentElement;
-                while (container) {
-                    // If we found a native conversation container, we want its PARENT
-                    if (container.classList.contains('conversation-container') && container.parentElement) {
-                        return container.parentElement as HTMLElement;
-                    }
-                    if (container.tagName === 'MAIN' ||
-                        container.getAttribute('role') === 'main') {
-                        return container as HTMLElement;
-                    }
-                    container = container.parentElement;
-                }
+        // Fallback: walk up from a native .conversation-container to find scroller
+        const nativeMsg = document.querySelector(
+            '.conversation-container:not(.council-conversation-container):not(.council-hydrated-group)'
+        );
+        if (nativeMsg?.parentElement) {
+            const parent = nativeMsg.parentElement;
+            // Verify this is the scroller, not <main> or another wrapper
+            if (parent.tagName.toLowerCase() === 'infinite-scroller' ||
+                parent.classList.contains('chat-history')) {
+                return parent as HTMLElement;
             }
         }
 
-        const chatHistory = document.querySelector('[role="main"] .chat-history');
-        if (chatHistory) return chatHistory as HTMLElement;
-
-        const main = document.querySelector('main');
-        if (main) return main as HTMLElement;
-
+        // Do NOT fall back to <main> — returning null lets callers retry
         return null;
     }
 
