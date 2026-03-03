@@ -69,6 +69,7 @@ type MessageType =
     | "SAVE_MESSAGE"
     | "GET_MESSAGES"
     | "GET_CONVERSATION"
+    | "GET_ALL_IDS"
     | "SYNC_NOW"
     | "SYNC_STATUS"
     | "SYNC_LOGIN"
@@ -129,6 +130,10 @@ chrome.runtime.onMessage.addListener((message: Message, sender, sendResponse) =>
 
         case "SYNC_LOGOUT":
             handleSyncLogout(sendResponse);
+            return true;
+
+        case "GET_ALL_IDS":
+            handleGetAllIds(sendResponse);
             return true;
 
         default:
@@ -250,6 +255,27 @@ async function handleGetConversation(
     } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : String(error);
         console.error("Gemini Council (BG): Get conversation error:", errorMessage);
+        sendResponse({ success: false, error: errorMessage });
+    }
+}
+
+async function handleGetAllIds(
+    sendResponse: (response: unknown) => void
+): Promise<void> {
+    try {
+        const storage = StorageService.getInstance();
+        await storage.init();
+
+        const allConversations = await storage.getAllConversations();
+        const ids = allConversations.map(c => c.id);
+        const messageCounts = allConversations.map(c => `${c.id}(${c.messages.length}msg)`);
+
+        console.log(`Gemini Council (BG): [DIAG] All stored conversations: [${messageCounts.join(", ")}]`);
+
+        sendResponse({ success: true, ids });
+    } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        console.error("Gemini Council (BG): Get all IDs error:", errorMessage);
         sendResponse({ success: false, error: errorMessage });
     }
 }

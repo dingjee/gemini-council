@@ -54,36 +54,45 @@ export class MessageHydrator {
 
         // Wait for background sync to finish pulling Gist data into IndexedDB
         const syncInfo = await this.waitForSyncReady();
+        console.log("MessageHydrator: Sync info:", JSON.stringify(syncInfo));
 
         console.log("MessageHydrator: Starting hydration...");
 
-        // Attempt to get stored conversation, with retries for sync lag and DOM loading
+        // === Phase 1: Resolve stable conversation ID ===
+        // The sidebar element renders the canonical 16-char hex ID.
+        // The URL might be a short Base62 alias (e.g. /app/ldybj7) which is useless for Gist lookup.
+        // We MUST wait for the sidebar to render before proceeding.
+        const conversationId = await this.waitForStableConversationId();
+
+        if (!conversationId) {
+            console.log("MessageHydrator: Could not resolve a stable conversation ID, aborting hydration");
+            return;
+        }
+
+        console.log(`MessageHydrator: Resolved stable conversation ID: "${conversationId}"`);
+
+        // === Phase 2: Query IndexedDB for conversation data ===
         let conversation = null;
-        let lastId = null;
 
         for (let attempt = 0; attempt < SYNC_READY_MAX_RETRIES; attempt++) {
-            // Re-evaluate ID on each retry - the sidebar element might take a moment to render
-            const conversationId = StorageBridge.getConversationId();
-            lastId = conversationId;
+            const result = await StorageBridge.getConversation(conversationId);
 
-            if (conversationId) {
-                const result = await StorageBridge.getConversation(conversationId);
-
-                if (result.success && result.data) {
-                    conversation = result.data;
-                    console.log(`MessageHydrator: [DIAG] Success on attempt ${attempt + 1} with ID="${conversationId}"`);
-                    break;
-                }
+            if (result.success && result.data) {
+                conversation = result.data;
+                console.log(`MessageHydrator: Found conversation on attempt ${attempt + 1}`);
+                break;
             }
 
             if (attempt < SYNC_READY_MAX_RETRIES - 1) {
-                console.log(`MessageHydrator: No conversation found for ID="${conversationId}", retrying (${attempt + 1}/${SYNC_READY_MAX_RETRIES})...`);
+                console.log(`MessageHydrator: No data for ID="${conversationId}", retrying (${attempt + 1}/${SYNC_READY_MAX_RETRIES})...`);
                 await this.sleep(SYNC_READY_RETRY_DELAY_MS);
             }
         }
 
         if (!conversation) {
-            console.log(`MessageHydrator: No stored conversation found after retries (Last ID checked: "${lastId}")`);
+            // Diagnostic: ask background for all stored IDs so we can see what's available
+            await this.logDiagnostics(conversationId);
+            console.log(`MessageHydrator: No stored conversation found for ID="${conversationId}" after ${SYNC_READY_MAX_RETRIES} retries`);
             return;
         }
 
@@ -341,6 +350,74 @@ export class MessageHydrator {
             hash = hash & hash;
         }
         return Math.abs(hash).toString(36);
+    }
+
+    /**
+     * Wait for the sidebar to render and provide the canonical conversation ID.
+     * The sidebar uses the server-generated 16-char hex ID, which is stable across devices.
+     * Falls back to URL-based ID if sidebar never renders.
+     */
+    private async waitForStableConversationId(): Promise<string | null> {
+        const MAX_SIDEBAR_WAIT = 15; // max attempts
+        const SIDEBAR_POLL_MS = 1000; // poll interval
+
+        for (let i = 0; i < MAX_SIDEBAR_WAIT; i++) {
+            // Check sidebar first - this is the canonical source
+            const sidebarItem = document.querySelector('a.conversation.selected[aria-current="true"]');
+            if (sidebarItem) {
+                const href = sidebarItem.getAttribute('href');
+                if (href) {
+                    const match = href.match(/\/app\/([a-zA-Z0-9_-]+)/);
+                    if (match && match[1]) {
+                        console.log(`MessageHydrator: Got stable ID "${match[1]}" from sidebar (attempt ${i + 1})`);
+                        return match[1];
+                    }
+                }
+            }
+
+            // Fallback: check URL for a proper hex-like ID (not a short Base62 alias)
+            const url = window.location.href;
+            const urlMatch = url.match(/gemini\.google\.com\/app\/([a-f0-9]{16,})/);
+            if (urlMatch && urlMatch[1]) {
+                console.log(`MessageHydrator: Got stable ID "${urlMatch[1]}" from URL hex pattern (attempt ${i + 1})`);
+                return urlMatch[1];
+            }
+
+            if (i < MAX_SIDEBAR_WAIT - 1) {
+                await this.sleep(SIDEBAR_POLL_MS);
+            }
+        }
+
+        // Absolute last resort: use whatever getConversationId returns
+        const fallback = StorageBridge.getConversationId();
+        console.warn(`MessageHydrator: Sidebar never rendered stable ID, using fallback: "${fallback}"`);
+        return fallback;
+    }
+
+    /**
+     * Log diagnostic info to help debug sync issues.
+     * Queries background for all stored conversation IDs and sync status.
+     */
+    private async logDiagnostics(requestedId: string): Promise<void> {
+        try {
+            const syncStatus = await StorageBridge.getSyncStatus();
+            console.log(`MessageHydrator: [DIAG] Sync status:`, JSON.stringify(syncStatus));
+
+            // Ask background for all stored IDs via GET_CONVERSATION with a special diagnostic
+            const response = await chrome.runtime.sendMessage({
+                type: "GET_ALL_IDS",
+            });
+
+            if (response && response.ids) {
+                console.log(`MessageHydrator: [DIAG] Requested ID: "${requestedId}"`);
+                console.log(`MessageHydrator: [DIAG] All stored IDs in IndexedDB: [${response.ids.join(", ")}]`);
+                console.log(`MessageHydrator: [DIAG] Match found: ${response.ids.includes(requestedId)}`);
+            } else {
+                console.log(`MessageHydrator: [DIAG] Could not retrieve stored IDs (GET_ALL_IDS not supported or failed)`);
+            }
+        } catch (e) {
+            console.log("MessageHydrator: [DIAG] Diagnostic query failed:", e);
+        }
     }
 
     private sleep(ms: number): Promise<void> {
