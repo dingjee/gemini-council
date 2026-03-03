@@ -49,7 +49,7 @@ export const MessageAnchorSchema = z.object({
     /** Index position within the conversation (fallback) */
     positionIndex: z.number(),
     /** A snippet of the preceding message for verification */
-    precedingMessageSnippet: z.string().max(200),
+    precedingMessageSnippet: z.string(),
     /** Gemini's native conversation-container ID — stable across devices (primary anchor) */
     geminiMessageId: z.string().optional(),
 });

@@ -187,6 +187,8 @@ export class GistClient {
 
             const parsed = CloudBackupSchema.safeParse(rawJson);
             if (!parsed.success) {
+                console.error("GistClient: Backup parse FAILED. Issues:", JSON.stringify(parsed.error.issues, null, 2));
+                console.error("GistClient: Raw JSON conversation count:", rawJson?.conversations?.length ?? "N/A");
                 return {
                     success: false,
                     error: {
