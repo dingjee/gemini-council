@@ -13,12 +13,19 @@ export interface CouncilMessageItem {
     userPrompt: string;
     content: string;
     selected: boolean;
+    timestamp?: number;
 }
 
 export class ContextInjector {
     private container: HTMLElement | null = null;
     private messages: CouncilMessageItem[] = [];
-    private collapsed: boolean = false;
+    private collapsed: boolean = true;
+    private isHovered: boolean = false;
+    private limitContentLength: boolean = true;
+    private mode: "native" | "external" = "native";
+    private externalHistoryDepth: number = 0; // 0, 1, 3, 999
+    private limitExternalTokens: boolean = true;
+    public onSelectionChange: ((count: number) => void) | null = null;
     private static instance: ContextInjector | null = null;
     private static STYLE_ID = "council-context-injector-styles";
 
@@ -36,15 +43,34 @@ export class ContextInjector {
     }
 
     hasMessages(): boolean {
-        return this.messages.length > 0;
+        // External mode always has "messages" (the config options) to display
+        return this.mode === "external" || this.messages.length > 0;
     }
 
     hasSelectedMessages(): boolean {
-        return this.messages.some(m => m.selected);
+        if (this.mode === "native") {
+            return this.messages.some(m => m.selected);
+        }
+        return this.externalHistoryDepth > 0;
+    }
+
+    setMode(mode: "native" | "external"): void {
+        if (this.mode !== mode) {
+            this.mode = mode;
+            this.render();
+        }
+    }
+
+    getHistoryConfig(): { depth: number, limit: boolean } {
+        return { depth: this.externalHistoryDepth, limit: this.limitExternalTokens };
     }
 
     updateMessages(messages: CouncilMessageItem[]): void {
-        this.messages = messages.map(m => ({ ...m, selected: true }));
+        const oldState = new Map(this.messages.map(m => [m.id, m.selected]));
+        this.messages = messages.map(m => ({
+            ...m,
+            selected: oldState.has(m.id) ? oldState.get(m.id)! : true
+        }));
         this.render();
     }
 
@@ -57,13 +83,32 @@ export class ContextInjector {
     }
 
     toggleAll(selected: boolean): void {
-        this.messages.forEach(m => m.selected = selected);
+        if (this.mode === "native") {
+            this.messages.forEach(m => m.selected = selected);
+        } else {
+            this.externalHistoryDepth = selected ? 999 : 0;
+        }
         this.render();
     }
 
     toggleCollapse(): void {
         this.collapsed = !this.collapsed;
         this.render();
+    }
+
+    setCollapsed(collapsed: boolean): void {
+        if (this.collapsed !== collapsed) {
+            this.collapsed = collapsed;
+            this.render();
+        }
+    }
+
+    isCollapsed(): boolean {
+        return this.collapsed;
+    }
+
+    isHovering(): boolean {
+        return this.isHovered;
     }
 
     show(): void {
@@ -93,9 +138,11 @@ export class ContextInjector {
         const selected = this.messages.filter(m => m.selected);
         if (selected.length === 0) return "";
 
+        const maxLengthPerMessage = this.limitContentLength ? Math.floor(6000 / selected.length) : Infinity;
+
         const parts = selected.map(m => {
-            const contentPreview = m.content.length > 500
-                ? m.content.substring(0, 500) + "..."
+            const contentPreview = m.content.length > maxLengthPerMessage
+                ? m.content.substring(0, maxLengthPerMessage) + "..."
                 : m.content;
             return `### ${m.modelName}\n**User:** ${m.userPrompt}\n**Response:**\n${contentPreview}`;
         });
@@ -106,6 +153,19 @@ export class ContextInjector {
     private createContainer(): void {
         this.container = document.createElement("div");
         this.container.id = "council-context-injector";
+
+        // Prevent mousedown on the injector from stealing focus from the input box
+        this.container.addEventListener("mousedown", (e) => {
+            e.preventDefault();
+        });
+
+        this.container.addEventListener("mouseenter", () => {
+            this.isHovered = true;
+        });
+
+        this.container.addEventListener("mouseleave", () => {
+            this.isHovered = false;
+        });
 
         // Insert inside the input-area's text-input-field, above the text area
         // This mimics how Gemini's attachment previews appear above the text input
@@ -127,22 +187,36 @@ export class ContextInjector {
     private render(): void {
         if (!this.container) return;
 
+        if (this.mode === "native") {
+            this.renderNativeMode();
+        } else {
+            this.renderExternalMode();
+        }
+
+        this.attachEventListeners();
+    }
+
+    private renderNativeMode(): void {
         const selectedCount = this.messages.filter(m => m.selected).length;
         const totalCount = this.messages.length;
 
-        this.container.innerHTML = `
+        this.container!.innerHTML = `
             <div class="council-ctx-header" data-action="toggle">
                 <div class="council-ctx-header-left">
                     <svg class="council-ctx-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
                     </svg>
-                    <span class="council-ctx-title">Council (${selectedCount}/${totalCount})</span>
+                    <span class="council-ctx-title">Council 卡片 (${selectedCount}/${totalCount})</span>
                 </div>
                 <div class="council-ctx-header-right">
-                    <button class="council-ctx-action-btn" data-action="select-all" title="Select all">
+                    <label class="council-ctx-limit-label" title="自动限制总字数不超过 6000 字">
+                        <input type="checkbox" class="council-ctx-limit-check" ${this.limitContentLength ? "checked" : ""}>
+                        <span>总限制</span>
+                    </label>
+                    <button class="council-ctx-action-btn" data-action="select-all" title="全选">
                         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M18 7l-1.41-1.41-6.34 6.34 1.41 1.41L18 7zm4.24-1.41L11.66 16.17 7.48 12l-1.41 1.41L11.66 19l12-12-1.42-1.41zM.41 13.41L6 19l1.41-1.41L1.83 12 .41 13.41z"/></svg>
                     </button>
-                    <button class="council-ctx-action-btn" data-action="deselect-all" title="Deselect all">
+                    <button class="council-ctx-action-btn" data-action="deselect-all" title="全不选">
                         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
                     </button>
                     <span class="council-ctx-collapse">${this.collapsed ? "\u25B6" : "\u25BC"}</span>
@@ -155,22 +229,80 @@ export class ContextInjector {
             </div>
         `;
 
-        this.attachEventListeners();
+        this.onSelectionChange?.(selectedCount);
+    }
+
+    private renderExternalMode(): void {
+        const options = [
+            { val: 0, label: "不附带", desc: "仅发送当前问题" },
+            { val: 1, label: "前 1 条", desc: "包含最新的一轮对话" },
+            { val: 3, label: "前 3 条", desc: "包含最近的三轮对话" },
+            { val: 999, label: "全 部", desc: "包含此页所有聊天记录" },
+        ];
+
+        const cards = options.map(opt => `
+            <div class="council-ctx-item council-ctx-item-ext ${this.externalHistoryDepth === opt.val ? "selected" : ""}" data-history-val="${opt.val}">
+                <div class="council-ctx-item-top" style="margin-bottom: 2px;">
+                    <span class="council-ctx-badge" style="background:var(--gem-sys-color--surface-variant, #444);">${opt.label}</span>
+                    <input type="radio" name="ext_history" class="council-ctx-radio council-ctx-check" 
+                           ${this.externalHistoryDepth === opt.val ? "checked" : ""} data-history-val="${opt.val}">
+                </div>
+                <div class="council-ctx-text" style="justify-content:center;">
+                    <span class="council-ctx-preview" style="text-align:left;">${opt.desc}</span>
+                </div>
+            </div>
+        `).join("");
+
+        this.container!.innerHTML = `
+            <div class="council-ctx-header" data-action="toggle">
+                <div class="council-ctx-header-left">
+                    <svg class="council-ctx-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+                    </svg>
+                    <span class="council-ctx-title">上下文记忆 (History)</span>
+                </div>
+                <div class="council-ctx-header-right">
+                    <label class="council-ctx-limit-label" title="限制Token以节约开销">
+                        <input type="checkbox" class="council-ext-limit-check" ${this.limitExternalTokens ? "checked" : ""}>
+                        <span>字数限制</span>
+                    </label>
+                    <span class="council-ctx-collapse">${this.collapsed ? "\u25B6" : "\u25BC"}</span>
+                </div>
+            </div>
+            <div class="council-ctx-body ${this.collapsed ? "collapsed" : ""}">
+                <div class="council-ctx-messages">
+                    ${cards}
+                </div>
+            </div>
+        `;
+
+        this.onSelectionChange?.(this.externalHistoryDepth > 0 ? 1 : 0);
+    }
+
+    private formatTime(timestamp?: number): string {
+        if (!timestamp) return "";
+        const d = new Date(timestamp);
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        const hours = String(d.getHours()).padStart(2, '0');
+        const minutes = String(d.getMinutes()).padStart(2, '0');
+        return `${month}-${day} ${hours}:${minutes}`;
     }
 
     private renderMessageItem(msg: CouncilMessageItem): string {
-        const contentPreview = msg.content.length > 60
-            ? msg.content.substring(0, 60).replace(/\n/g, " ") + "..."
-            : msg.content.replace(/\n/g, " ");
-        const promptPreview = msg.userPrompt.length > 30
-            ? msg.userPrompt.substring(0, 30) + "..."
-            : msg.userPrompt;
+        const contentPreview = msg.content.substring(0, 300).replace(/\n/g, " ");
+        const promptPreview = msg.userPrompt.substring(0, 100).replace(/\n/g, " ");
 
         return `
             <div class="council-ctx-item ${msg.selected ? "selected" : ""}" data-id="${msg.id}">
-                <input type="checkbox" class="council-ctx-check" 
-                       ${msg.selected ? "checked" : ""} data-id="${msg.id}">
-                <span class="council-ctx-badge">${this.getModelShortName(msg.modelName)}</span>
+                <div class="council-ctx-item-top">
+                    <div class="council-ctx-badge-group">
+                        <span class="council-ctx-badge">${this.getModelShortName(msg.modelName)}</span>
+                        ${msg.timestamp ? `<span class="council-ctx-time">${this.formatTime(msg.timestamp)}</span>` : ''}
+                    </div>
+                    <input type="checkbox" class="council-ctx-check" 
+                           ${msg.selected ? "checked" : ""} data-id="${msg.id}">
+                </div>
                 <div class="council-ctx-text">
                     <span class="council-ctx-prompt">${this.escapeHtml(promptPreview)}</span>
                     <span class="council-ctx-preview">${this.escapeHtml(contentPreview)}</span>
@@ -214,18 +346,56 @@ export class ContextInjector {
             });
         });
 
+        this.container.querySelectorAll(".council-ext-limit-check").forEach(el => {
+            el.addEventListener("change", (e) => {
+                this.limitExternalTokens = (e.target as HTMLInputElement).checked;
+            });
+        });
+
+        this.container.querySelectorAll(".council-ctx-limit-check").forEach(el => {
+            el.addEventListener("change", (e) => {
+                this.limitContentLength = (e.target as HTMLInputElement).checked;
+            });
+        });
+
+        this.container.querySelectorAll(".council-ctx-limit-label").forEach(el => {
+            el.addEventListener("click", (e) => {
+                e.stopPropagation(); // prevent collapsing injector
+            });
+        });
+
+        this.container.querySelectorAll(".council-ctx-radio").forEach(el => {
+            el.addEventListener("change", (e) => {
+                const valstr = (e.target as HTMLInputElement).dataset.historyVal;
+                if (valstr !== undefined) {
+                    this.externalHistoryDepth = parseInt(valstr, 10);
+                    this.render();
+                }
+            });
+        });
+
         this.container.querySelectorAll(".council-ctx-check").forEach(el => {
             el.addEventListener("change", (e) => {
-                const id = (e.target as HTMLInputElement).dataset.id;
-                if (id) this.toggleMessage(id);
+                if (this.mode === "native") {
+                    const id = (e.target as HTMLInputElement).dataset.id;
+                    if (id) this.toggleMessage(id);
+                }
             });
         });
 
         this.container.querySelectorAll(".council-ctx-item").forEach(el => {
             el.addEventListener("click", (e) => {
                 if ((e.target as HTMLElement).tagName !== "INPUT") {
-                    const id = (e.currentTarget as HTMLElement).dataset.id;
-                    if (id) this.toggleMessage(id);
+                    if (this.mode === "native") {
+                        const id = (e.currentTarget as HTMLElement).dataset.id;
+                        if (id) this.toggleMessage(id);
+                    } else {
+                        const valstr = (e.currentTarget as HTMLElement).dataset.historyVal;
+                        if (valstr !== undefined) {
+                            this.externalHistoryDepth = parseInt(valstr, 10);
+                            this.render();
+                        }
+                    }
                 }
             });
         });
@@ -245,7 +415,8 @@ export class ContextInjector {
                 border: 1px solid var(--gem-sys-color--outline-variant, rgba(255,255,255,0.1));
                 overflow: hidden;
                 font-size: 11px;
-                width: 100%;
+                width: calc(100% - 8px);
+                align-self: flex-start;
                 box-sizing: border-box;
             }
 
@@ -291,6 +462,15 @@ export class ContextInjector {
                 flex-shrink: 0;
             }
 
+            .council-ctx-limit-label {
+                display: flex;
+                align-items: center;
+                gap: 4px;
+                color: var(--gem-sys-color--on-surface-variant, #9aa0a6);
+                cursor: pointer;
+                margin-right: 8px;
+            }
+
             .council-ctx-action-btn {
                 display: flex;
                 align-items: center;
@@ -322,7 +502,7 @@ export class ContextInjector {
 
             .council-ctx-body {
                 max-height: 150px;
-                overflow-y: auto;
+                overflow-y: hidden;
                 transition: max-height 0.25s ease;
             }
             .council-ctx-body.collapsed {
@@ -332,20 +512,39 @@ export class ContextInjector {
 
             .council-ctx-messages {
                 display: flex;
-                flex-direction: column;
-                gap: 2px;
-                padding: 4px;
+                flex-direction: row;
+                gap: 6px;
+                padding: 6px 8px;
+                overflow-x: auto;
+                overflow-y: hidden;
+                max-width: 100%;
+            }
+            
+            /* Custom scrollbar for horizontal scrolling */
+            .council-ctx-messages::-webkit-scrollbar {
+                height: 4px;
+            }
+            .council-ctx-messages::-webkit-scrollbar-track {
+                background: transparent;
+            }
+            .council-ctx-messages::-webkit-scrollbar-thumb {
+                background-color: var(--gem-sys-color--outline-variant, rgba(255,255,255,0.2));
+                border-radius: 4px;
             }
 
             .council-ctx-item {
                 display: flex;
-                align-items: center;
-                padding: 4px 6px;
+                flex-direction: column;
+                align-items: flex-start;
+                padding: 6px 8px;
                 border-radius: 8px;
                 cursor: pointer;
                 transition: background 0.15s;
-                gap: 6px;
+                gap: 4px;
                 border: 1px solid transparent;
+                min-width: 140px;
+                max-width: 180px;
+                flex-shrink: 0;
             }
             .council-ctx-item:hover {
                 background: rgba(255, 255, 255, 0.04);
@@ -355,6 +554,13 @@ export class ContextInjector {
                 border-color: rgba(102, 126, 234, 0.2);
             }
 
+            .council-ctx-item-top {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                width: 100%;
+            }
+
             .council-ctx-check {
                 margin: 0;
                 accent-color: #667eea;
@@ -362,6 +568,19 @@ export class ContextInjector {
                 height: 12px;
                 cursor: pointer;
                 flex-shrink: 0;
+            }
+
+            .council-ctx-badge-group {
+                display: flex;
+                align-items: center;
+                gap: 5px;
+            }
+
+            .council-ctx-time {
+                font-size: 9px;
+                color: var(--gem-sys-color--on-surface-variant, #9aa0a6);
+                opacity: 0.8;
+                letter-spacing: 0.2px;
             }
 
             .council-ctx-badge {
@@ -378,9 +597,10 @@ export class ContextInjector {
             .council-ctx-text {
                 flex: 1;
                 min-width: 0;
+                width: 100%;
                 display: flex;
                 flex-direction: column;
-                gap: 1px;
+                gap: 2px;
             }
 
             .council-ctx-prompt {
@@ -395,10 +615,27 @@ export class ContextInjector {
             .council-ctx-preview {
                 color: var(--gem-sys-color--on-surface-variant, #9aa0a6);
                 font-size: 9px;
-                line-height: 1.2;
+                line-height: 1.4;
+                display: -webkit-box;
+                -webkit-line-clamp: 2;
+                -webkit-box-orient: vertical;
                 overflow: hidden;
-                text-overflow: ellipsis;
-                white-space: nowrap;
+                white-space: normal;
+                word-wrap: break-word;
+            }
+
+            .council-ctx-item-ext {
+                flex: 1;
+                min-width: 0;
+                width: auto;
+                max-width: none;
+            }
+            .council-ctx-item-ext .council-ctx-radio {
+                margin: 0;
+                accent-color: var(--gem-sys-color--on-surface, #e3e3e3);
+                width: 12px;
+                height: 12px;
+                cursor: pointer;
             }
         `;
 

@@ -18,6 +18,10 @@ await Bun.build({
     define: {
         "process.env.OPENROUTER_API_KEY": JSON.stringify(Bun.env.OPENROUTER_API_KEY || ""),
         "process.env.GITHUB_GIST_API_KEY": JSON.stringify(Bun.env.GITHUB_GIST_API_KEY || ""),
+        "process.env.R2_ACCESS_KEY": JSON.stringify(Bun.env.R2_ACCESS_KEY || ""),
+        "process.env.R2_SECRET_KEY": JSON.stringify(Bun.env.R2_SECRET_KEY || ""),
+        "process.env.R2_ENDPOINT": JSON.stringify(Bun.env.R2_ENDPOINT || ""),
+        "process.env.BUCKET_NAME": JSON.stringify(Bun.env.BUCKET_NAME || ""),
     },
     minify: false, // Keep it readable for now
 });

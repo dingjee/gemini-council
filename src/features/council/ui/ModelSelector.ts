@@ -78,6 +78,7 @@ export class ModelSelector {
     private councilMessageCount: number = 0;
 
     private syncIndicator: SyncIndicator | null = null;
+    public onContextToggleClick?: (active: boolean) => void;
 
     constructor(onModelChange: (model: string) => void) {
         this.onModelChange = onModelChange;
@@ -670,6 +671,7 @@ export class ModelSelector {
             if (this.contextCheckbox) {
                 this.contextCheckbox.checked = !this.contextCheckbox.checked;
                 this.contextIconBtn?.classList.toggle("active", this.contextCheckbox.checked);
+                this.onContextToggleClick?.(this.contextCheckbox.checked);
             }
         });
 
@@ -1048,15 +1050,20 @@ export class ModelSelector {
         this.updateTriggerButton();
     }
 
-    public setHasCouncilContent(has: boolean, count: number = 0) {
+    public setHasCouncilContent(has: boolean, count: number | string = 0) {
         this.hasCouncilContent = has;
-        this.councilMessageCount = count;
+        this.councilMessageCount = typeof count === 'number' ? count : 1;
+
+        const isActive = count !== 0 && count !== '0' && count !== '';
+
         if (this.contextSizeDisplay) {
-            if (count > 0) {
+            if (isActive) {
                 this.contextSizeDisplay.textContent = String(count);
                 this.contextSizeDisplay.style.display = "flex";
+                this.setCouncilContextChecked(true);
             } else {
                 this.contextSizeDisplay.style.display = "none";
+                this.setCouncilContextChecked(false);
             }
         }
         this.updateTriggerButton();
@@ -1064,6 +1071,13 @@ export class ModelSelector {
 
     public shouldAttachCouncilContext(): boolean {
         return this.contextCheckbox?.checked || false;
+    }
+
+    public setCouncilContextChecked(checked: boolean): void {
+        if (this.contextCheckbox) {
+            this.contextCheckbox.checked = checked;
+            this.contextIconBtn?.classList.toggle("active", checked);
+        }
     }
 
     /** Whether to attach native Gemini chat history to external model queries */

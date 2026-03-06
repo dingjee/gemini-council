@@ -29,11 +29,32 @@ class CouncilManager {
     private hydrator: MessageHydrator;
     private contextInjector: ContextInjector;
     private contextCheckTimeout: number | undefined;
+    private isInputFocused: boolean = false;
 
     constructor() {
         this.selector = new ModelSelector(this.handleModelChange.bind(this));
         this.hydrator = new MessageHydrator();
         this.contextInjector = ContextInjector.getInstance();
+
+        this.contextInjector.onSelectionChange = (count: number) => {
+            const isExternal = this.selector.isExternalModel();
+            const hasCouncil = isExternal ? true : (this.extractCouncilMessagesFromDOM().length > 0);
+
+            if (isExternal) {
+                const depth = this.contextInjector.getHistoryConfig().depth;
+                let badgeText: number | string = 0;
+                if (depth === 999) badgeText = "∞";
+                else if (depth > 0) badgeText = depth;
+                this.selector.setHasCouncilContent(true, badgeText);
+            } else {
+                this.selector.setHasCouncilContent(hasCouncil, count);
+            }
+        };
+
+        this.selector.onContextToggleClick = (active: boolean) => {
+            this.contextInjector.toggleAll(active);
+        };
+
         this.startObserving();
         setInterval(() => this.checkContextSize(), 5000);
 
@@ -70,17 +91,27 @@ class CouncilManager {
         const councilMessages = this.extractCouncilMessagesFromDOM();
         const hasCouncil = councilMessages.length > 0;
 
-        console.log('Gemini Council: updateContextInjector', { hasCouncil, count: councilMessages.length });
+        if (this.selector.isExternalModel()) {
+            this.contextInjector.setMode("external");
+            const activeCount = this.contextInjector.hasSelectedMessages() ? 1 : 0;
+            this.selector.setHasCouncilContent(true, activeCount);
 
-        // Always sync the ModelSelector's inline toggle state
-        this.selector.setHasCouncilContent(hasCouncil, councilMessages.length);
-
-        // Show the ContextInjector card (detailed message selection) only for native model
-        if (hasCouncil && !this.selector.isExternalModel()) {
-            this.contextInjector.updateMessages(councilMessages);
-            this.contextInjector.show();
+            if (this.isInputFocused) {
+                this.contextInjector.show();
+            } else {
+                this.contextInjector.hide();
+            }
         } else {
-            this.contextInjector.hide();
+            this.contextInjector.setMode("native");
+            const selectedCount = this.contextInjector.getMessages().filter(m => m.selected).length;
+            this.selector.setHasCouncilContent(hasCouncil, selectedCount);
+
+            if (hasCouncil && this.isInputFocused) {
+                this.contextInjector.updateMessages(councilMessages);
+                this.contextInjector.show();
+            } else {
+                this.contextInjector.hide();
+            }
         }
     }
 
@@ -104,7 +135,13 @@ class CouncilManager {
             const markdownEl = modelResponse.querySelector('.council-markdown');
             const content = markdownEl?.getAttribute('data-raw-content') || markdownEl?.textContent || '';
 
-            messages.push({ id, modelId, modelName, userPrompt, content, selected: true });
+            let timestamp = modelResponse.dataset.timestamp ? parseInt(modelResponse.dataset.timestamp) : 0;
+            if (!timestamp) {
+                timestamp = Date.now();
+                modelResponse.dataset.timestamp = String(timestamp);
+            }
+
+            messages.push({ id, modelId, modelName, userPrompt, content, timestamp, selected: true });
         });
 
         // Pattern 2: Hydrated responses — .council-model-response is a SIBLING inside .council-hydrated-group
@@ -123,7 +160,13 @@ class CouncilManager {
             const markdownEl = modelResponse.querySelector('.council-markdown');
             const content = markdownEl?.getAttribute('data-raw-content') || markdownEl?.textContent || '';
 
-            messages.push({ id, modelId, modelName, userPrompt, content, selected: true });
+            let timestamp = modelResponse.dataset.timestamp ? parseInt(modelResponse.dataset.timestamp) : 0;
+            if (!timestamp) {
+                timestamp = Date.now();
+                modelResponse.dataset.timestamp = String(timestamp);
+            }
+
+            messages.push({ id, modelId, modelName, userPrompt, content, timestamp, selected: true });
         });
 
         return messages;
@@ -184,12 +227,43 @@ class CouncilManager {
                 if (this.selector.isExternalModel()) {
                     e.preventDefault();
                     e.stopImmediatePropagation();
+                    e.stopPropagation();
                     this.triggerCouncil();
                 } else {
-                    this.injectContextToInput();
+                    this.injectContextToInput(e);
                 }
             }
         }, true);
+
+        // Auto-hide context injector when input loses focus
+        this.inputElement.addEventListener("focus", () => {
+            this.isInputFocused = true;
+            this.updateContextInjector();
+        });
+
+        this.inputElement.addEventListener("blur", () => {
+            setTimeout(() => {
+                const activeEl = document.activeElement;
+                const injectorEl = document.getElementById("council-context-injector");
+
+                // If the user's mouse is actively hovering the injector, DO NOT treat it as a focus loss
+                if (this.contextInjector.isHovering()) {
+                    // Try to restore focus to input to keep things smooth
+                    this.inputElement?.focus();
+                    return;
+                }
+
+                // Check if focus moved to our injector or the model picker toggle
+                if (!this.inputElement?.contains(activeEl) &&
+                    (!injectorEl || !injectorEl.contains(activeEl)) &&
+                    !activeEl?.closest('.council-context-toggle')) {
+                    this.isInputFocused = false;
+                    // Auto-collapse when hiding
+                    this.contextInjector.setCollapsed(true);
+                    this.updateContextInjector();
+                }
+            }, 100);
+        });
     }
 
     private attachSendListener() {
@@ -202,7 +276,7 @@ class CouncilManager {
                 e.stopPropagation();
                 this.triggerCouncil();
             } else {
-                this.injectContextToInput();
+                this.injectContextToInput(e);
             }
         }, true);
 
@@ -217,30 +291,45 @@ class CouncilManager {
             if (this.selector.isExternalModel()) {
                 e.preventDefault();
                 e.stopImmediatePropagation();
+                e.stopPropagation();
                 this.triggerCouncil();
             } else {
-                this.injectContextToInput();
+                this.injectContextToInput(e);
             }
         }, true);
     }
 
-    private injectContextToInput(): void {
+    private injectContextToInput(e?: Event): void {
         if (!this.inputElement) return;
-        if (!this.selector.shouldAttachCouncilContext()) return;
         if (!this.contextInjector.hasSelectedMessages()) return;
 
         const contextText = this.contextInjector.getSelectedContextText();
         if (!contextText) return;
 
         const currentText = this.getInputText();
+        if (currentText.includes('[Council Context -')) return;
 
-        if (currentText.includes('[Council Context]')) return;
+        // Block native submission to inject our text first
+        if (e) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            e.stopPropagation();
+        }
 
-        const newText = contextText + currentText;
-
+        const newText = currentText ? (currentText + "\n\n" + contextText) : contextText;
         this.setQuillContent(newText);
+        console.log('Gemini Council: Injected context into input. Re-triggering send...');
 
-        console.log('Gemini Council: Injected context into input');
+        // Uncheck the council context automatically to prevent infinite loop on next submit
+        // Deselecting all messages is safe as we don't want to re-inject old contexts later.
+        this.contextInjector.toggleAll(false);
+
+        // Allow Angular a brief moment to digest the Input/Change events before triggering send again
+        setTimeout(() => {
+            if (this.sendButton) {
+                this.sendButton.click();
+            }
+        }, 50);
     }
 
     private setQuillContent(text: string): void {
@@ -414,22 +503,33 @@ class CouncilManager {
         let finalPrompt = text;
 
         // 1. Attach native Gemini chat history for external models
-        if (this.selector.shouldAttachChatHistory()) {
-            const history = DOMContentExtractor.extractChatHistory();
-            if (history.length > 0) {
-                const contextText = history.map(turn =>
-                    `[${turn.role.toUpperCase()}]:\n${turn.text}`
-                ).join('\n\n');
+        if (this.selector.isExternalModel()) {
+            const config = this.contextInjector.getHistoryConfig();
+            if (config.depth > 0) {
+                const history = DOMContentExtractor.extractChatHistory();
+                const startIndex = Math.max(0, history.length - config.depth);
+                const scopedHistory = history.slice(startIndex);
 
-                finalPrompt = `Below is the conversation history for context:\n\n${contextText}\n\n[CURRENT USER QUERY]:\n${text}`;
+                if (scopedHistory.length > 0) {
+                    const contextText = scopedHistory.map(turn =>
+                        `[${turn.role.toUpperCase()}]:\n${turn.text}`
+                    ).join('\n\n');
+
+                    finalPrompt = `Below is the conversation history for context:\n\n${contextText}\n\n[CURRENT USER QUERY]:\n${text}`;
+
+                    if (config.limit && finalPrompt.length > 6100) {
+                        const cutoff = finalPrompt.length - 6000;
+                        finalPrompt = "[Context Truncated]...\n" + finalPrompt.slice(cutoff);
+                    }
+                }
             }
-        }
-
-        // 2. Attach other council model responses if checkbox is checked
-        if (this.selector.shouldAttachCouncilContext() && this.contextInjector.hasSelectedMessages()) {
-            const councilText = this.contextInjector.getSelectedContextText();
-            if (councilText) {
-                finalPrompt = councilText + finalPrompt;
+        } else {
+            // 2. Attach other council model responses
+            if (this.contextInjector.hasSelectedMessages()) {
+                const councilText = this.contextInjector.getSelectedContextText();
+                if (councilText) {
+                    finalPrompt = councilText + finalPrompt;
+                }
             }
         }
 
