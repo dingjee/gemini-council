@@ -32,8 +32,9 @@ const EXTERNAL_MODEL_GROUPS: ModelGroup[] = [
         name: "OpenAI",
         icon: "🤖",
         models: [
-            { id: "openai/gpt-5.2-pro", name: "GPT-5.2 Pro", description: "Most advanced" },
-            { id: "openai/gpt-5.2", name: "GPT-5.2", description: "Flagship" },
+            { id: "openai/gpt-5.4-thinking", name: "GPT-5.4 Thinking", description: "Deep reasoning" },
+            { id: "openai/gpt-5.4-pro", name: "GPT-5.4 Pro", description: "Most advanced" },
+            { id: "openai/gpt-5.4", name: "GPT-5.4", description: "Flagship" },
         ]
     },
     {
