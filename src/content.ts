@@ -14,6 +14,7 @@ import { DOMContentExtractor } from "./features/council/core/DOMContentExtractor
 import { StorageBridge } from "./features/council/storage/StorageBridge";
 import { MessageHydrator } from "./features/council/storage/MessageHydrator";
 import { ContextInjector, type CouncilMessageItem } from "./features/council/ui/ContextInjector";
+import { InputLocker } from "./features/council/ui/InputLocker";
 import type { MessageAnchor } from "./core/types/storage.types";
 
 console.log("Gemini Council: Content script loaded.");
@@ -28,13 +29,17 @@ class CouncilManager {
     private observer: MutationObserver | null = null;
     private hydrator: MessageHydrator;
     private contextInjector: ContextInjector;
+    private inputLocker: InputLocker;
     private contextCheckTimeout: number | undefined;
     private isInputFocused: boolean = false;
+    private pendingQueryId: string | null = null;
+    private pendingElements: HTMLElement[] = [];
 
     constructor() {
         this.selector = new ModelSelector(this.handleModelChange.bind(this));
         this.hydrator = new MessageHydrator();
         this.contextInjector = ContextInjector.getInstance();
+        this.inputLocker = new InputLocker();
 
         this.contextInjector.onSelectionChange = (count: number) => {
             const isExternal = this.selector.isExternalModel();
@@ -214,6 +219,7 @@ class CouncilManager {
             if (sendBtn && sendBtn !== this.sendButton) {
                 this.sendButton = sendBtn;
                 this.attachSendListener();
+                this.inputLocker.reapply(this.inputElement, this.sendButton);
                 console.log("Gemini Council: Send button detected");
             }
         }
@@ -223,6 +229,12 @@ class CouncilManager {
         if (!this.inputElement) return;
 
         this.inputElement.addEventListener("keydown", (e) => {
+            // Block all input when a query is pending
+            if (this.inputLocker.isLocked) {
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                return;
+            }
             if (e.key === "Enter" && !e.shiftKey) {
                 if (this.selector.isExternalModel()) {
                     e.preventDefault();
@@ -270,6 +282,13 @@ class CouncilManager {
         if (!this.sendButton) return;
 
         this.sendButton.addEventListener("click", (e) => {
+            if (this.inputLocker.isLocked) {
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                e.stopPropagation();
+                this.stopCurrentQuery();
+                return;
+            }
             if (this.selector.isExternalModel()) {
                 e.preventDefault();
                 e.stopImmediatePropagation();
@@ -281,13 +300,20 @@ class CouncilManager {
         }, true);
 
         this.sendButton.addEventListener("mousedown", (e) => {
-            if (this.selector.isExternalModel()) {
+            if (this.inputLocker.isLocked || this.selector.isExternalModel()) {
                 e.preventDefault();
                 e.stopImmediatePropagation();
             }
         }, true);
 
         this.sendButton.addEventListener("touchstart", (e) => {
+            if (this.inputLocker.isLocked) {
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                e.stopPropagation();
+                this.stopCurrentQuery();
+                return;
+            }
             if (this.selector.isExternalModel()) {
                 e.preventDefault();
                 e.stopImmediatePropagation();
@@ -473,6 +499,10 @@ class CouncilManager {
     private async triggerCouncil() {
         const text = this.getInputText();
         if (!text) return;
+        if (this.inputLocker.isLocked) return;
+
+        const queryId = crypto.randomUUID();
+        this.pendingQueryId = queryId;
 
         const modelId = this.selector.getActiveModel();
         const modelName = this.selector.getActiveModelName();
@@ -480,13 +510,16 @@ class CouncilManager {
 
         console.log("Gemini Council: Triggering query to", modelId, "Council ctx:", councilContextAttached);
 
-        // Clear input
+        // Clear input and lock UI
         this.clearInput();
+        this.inputLocker.lock(this.inputElement, this.sendButton);
 
         // Find chat container
         const chatContainer = MessageRenderer.findChatContainer();
         if (!chatContainer) {
             console.error("Gemini Council: Could not find chat container");
+            this.pendingQueryId = null;
+            this.inputLocker.unlock(this.inputElement, this.sendButton);
             return;
         }
 
@@ -498,6 +531,7 @@ class CouncilManager {
         // Inject user message
         const userMessage = MessageRenderer.createUserMessage(text);
         chatContainer.appendChild(userMessage);
+        this.pendingElements = [userMessage];
 
         // Prepare prompt with context if needed
         let finalPrompt = text;
@@ -551,6 +585,9 @@ class CouncilManager {
                 payload: { model: modelId, prompt: finalPrompt }
             });
 
+            // Check if this query was cancelled while awaiting
+            if (this.pendingQueryId !== queryId) return;
+
             if (response.success && response.data?.choices?.[0]?.message?.content) {
                 const content = response.data.choices[0].message.content;
                 const responseElement = MessageRenderer.createModelResponse(modelId, modelName, content, text);
@@ -573,27 +610,62 @@ class CouncilManager {
                 MessageRenderer.replaceLoading(loadingElement, errorElement);
             }
         } catch (e: unknown) {
+            if (this.pendingQueryId !== queryId) return;
             const errorMessage = e instanceof Error ? e.message : String(e);
             console.error("Gemini Council: Error:", errorMessage);
             const errorElement = MessageRenderer.createErrorResponse(modelId, modelName, errorMessage, text);
             MessageRenderer.replaceLoading(loadingElement, errorElement);
+        } finally {
+            if (this.pendingQueryId === queryId) {
+                this.pendingQueryId = null;
+                this.pendingElements = [];
+                this.inputLocker.unlock(this.inputElement, this.sendButton);
+            }
         }
+    }
+
+    /**
+     * Stop the currently pending external model query.
+     * Removes pending DOM elements and unlocks input.
+     */
+    private stopCurrentQuery(): void {
+        if (!this.pendingQueryId) return;
+        console.log("Gemini Council: Stopping current query");
+
+        this.pendingQueryId = null;
+
+        // Remove pending DOM elements (user message + loading)
+        for (const el of this.pendingElements) {
+            el.remove();
+        }
+        this.pendingElements = [];
+
+        this.inputLocker.unlock(this.inputElement, this.sendButton);
     }
 
     /**
      * Redo a previous query
      */
     private async redoQuery(modelId: string, modelName: string, userPrompt: string): Promise<void> {
+        if (this.inputLocker.isLocked) return;
+
+        const queryId = crypto.randomUUID();
+        this.pendingQueryId = queryId;
+
         console.log("Gemini Council: Redoing query for", modelId);
+        this.inputLocker.lock(this.inputElement, this.sendButton);
 
         const chatContainer = MessageRenderer.findChatContainer();
         if (!chatContainer) {
             console.error("Gemini Council: Could not find chat container");
+            this.pendingQueryId = null;
+            this.inputLocker.unlock(this.inputElement, this.sendButton);
             return;
         }
 
         const loadingElement = MessageRenderer.createLoadingResponse(modelId, modelName);
         chatContainer.appendChild(loadingElement);
+        this.pendingElements = [loadingElement];
         loadingElement.scrollIntoView({ behavior: "smooth", block: "end" });
 
         try {
@@ -601,6 +673,8 @@ class CouncilManager {
                 type: "COUNCIL_QUERY",
                 payload: { model: modelId, prompt: userPrompt }
             });
+
+            if (this.pendingQueryId !== queryId) return;
 
             if (response.success && response.data?.choices?.[0]?.message?.content) {
                 const content = response.data.choices[0].message.content;
@@ -612,10 +686,17 @@ class CouncilManager {
                 MessageRenderer.replaceLoading(loadingElement, errorElement);
             }
         } catch (e: unknown) {
+            if (this.pendingQueryId !== queryId) return;
             const errorMessage = e instanceof Error ? e.message : String(e);
             console.error("Gemini Council: Redo error:", errorMessage);
             const errorElement = MessageRenderer.createErrorResponse(modelId, modelName, errorMessage, userPrompt);
             MessageRenderer.replaceLoading(loadingElement, errorElement);
+        } finally {
+            if (this.pendingQueryId === queryId) {
+                this.pendingQueryId = null;
+                this.pendingElements = [];
+                this.inputLocker.unlock(this.inputElement, this.sendButton);
+            }
         }
     }
 
